@@ -716,10 +716,6 @@ func (f *Friend) friendSure(c *wkhttp.Context) {
 
 	applyUID := valueMap["from_uid"].(string)
 	vercode := valueMap["vercode"].(string)
-	remark := ""
-	if valueMap["remark"] != nil {
-		remark = valueMap["remark"].(string)
-	}
 
 	applyUser, err := f.userDB.QueryByUID(applyUID)
 	if err != nil {
@@ -732,8 +728,14 @@ func (f *Friend) friendSure(c *wkhttp.Context) {
 		c.ResponseError(errors.New("申请人不存在"))
 		return
 	}
-	if remark == "" {
-		remark = fmt.Sprintf("我是%s", applyUser.Name)
+	// 通过方的一句招呼：优先用请求里的 remark（同意方自己写的介绍），否则默认用同意方昵称（勿再用申请人申请时的 remark，避免「像在介绍对方」）
+	greeting := strings.TrimSpace(req.Remark)
+	if greeting == "" {
+		if n := strings.TrimSpace(loginUser.Name); n != "" {
+			greeting = fmt.Sprintf("我是%s", n)
+		} else {
+			greeting = "我通过了你的好友申请"
+		}
 	}
 	if strings.TrimSpace(applyUID) == "" || strings.TrimSpace(vercode) == "" {
 		c.ResponseError(errors.New("好友申请无效或已过期！"))
@@ -885,13 +887,13 @@ func (f *Friend) friendSure(c *wkhttp.Context) {
 	}
 
 	payload := []byte(util.ToJson(map[string]interface{}{
-		"content": remark,
+		"content": greeting,
 		"type":    common.Text,
 	}))
 
 	err = f.ctx.SendMessage(&config.MsgSendReq{
-		FromUID:     applyUID,
-		ChannelID:   loginUID,
+		FromUID:     loginUID,
+		ChannelID:   applyUID,
 		ChannelType: common.ChannelTypePerson.Uint8(),
 		Payload:     payload,
 		Header: config.MsgHeader{
@@ -1071,7 +1073,8 @@ func (r applyReq) Check() error {
 }
 
 type sureReq struct {
-	Token string `json:"token"` // 收到申请的token
+	Token  string `json:"token"`  // 收到申请的token
+	Remark string `json:"remark"` // 可选：同意方通过时附带的一句自我介绍（不传则服务端用同意方昵称生成默认文案）
 }
 
 func (r sureReq) Check() error {
