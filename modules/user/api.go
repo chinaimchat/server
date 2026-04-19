@@ -625,23 +625,27 @@ func (u *User) uploadAvatar(c *wkhttp.Context) {
 		u.Error("查询用户好友失败")
 		return
 	}
-	if len(friends) > 0 {
-		uids := make([]string, 0)
-		for _, friend := range friends {
-			uids = append(uids, friend.ToUID)
+	// 必须包含 loginUID 自己：用户在多端（A/B 两台 PC、手机等）登录时，
+	// A 端上传新头像后，B 端必须同样收到 userAvatarUpdate 命令，
+	// 才会刷新本地缓存键（avatar URL 上的 ?v=…），否则 B 端会一直显示旧/系统头像。
+	subscriberSet := map[string]struct{}{loginUID: {}}
+	for _, friend := range friends {
+		if friend != nil && friend.ToUID != "" {
+			subscriberSet[friend.ToUID] = struct{}{}
 		}
-		// 发送头像更新命令
-		err = u.ctx.SendCMD(config.MsgCMDReq{
-			CMD:         common.CMDUserAvatarUpdate,
-			Subscribers: uids,
-			Param: map[string]interface{}{
-				"uid": loginUID,
-			},
-		})
-		if err != nil {
-			u.Error("发送个人头像更新命令失败！")
-			return
-		}
+	}
+	subscribers := make([]string, 0, len(subscriberSet))
+	for uid := range subscriberSet {
+		subscribers = append(subscribers, uid)
+	}
+	if err = u.ctx.SendCMD(config.MsgCMDReq{
+		CMD:         common.CMDUserAvatarUpdate,
+		Subscribers: subscribers,
+		Param: map[string]interface{}{
+			"uid": loginUID,
+		},
+	}); err != nil {
+		u.Error("发送个人头像更新命令失败！", zap.Error(err))
 	}
 	//更改用户上传头像状态
 	err = u.db.UpdateUsersWithField("is_upload_avatar", "1", loginUID)
