@@ -1435,6 +1435,7 @@ func (m *Manager) privilegeGlobalGet(c *wkhttp.Context) {
 		"friend_apply_auto_accept_on":           cfg.FriendApplyAutoAcceptOn,
 		"privilege_only_create_invite_group_on": cfg.PrivilegeOnlyCreateInviteGroupOn,
 		"show_last_offline_on":                  cfg.ShowLastOfflineOn,
+		"show_device_online_on":                 cfg.ShowDeviceOnlineOn,
 	})
 }
 
@@ -1449,12 +1450,13 @@ func (m *Manager) privilegeGlobalUpdate(c *wkhttp.Context) {
 		FriendApplyAutoAcceptOn          *int `json:"friend_apply_auto_accept_on"`
 		PrivilegeOnlyCreateInviteGroupOn *int `json:"privilege_only_create_invite_group_on"`
 		ShowLastOfflineOn                *int `json:"show_last_offline_on"`
+		ShowDeviceOnlineOn               *int `json:"show_device_online_on"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.ResponseError(errors.New("请求数据格式有误"))
 		return
 	}
-	if req.PrivilegeOnlyAddFriendOn == nil && req.FriendApplyAutoAcceptOn == nil && req.PrivilegeOnlyCreateInviteGroupOn == nil && req.ShowLastOfflineOn == nil {
+	if req.PrivilegeOnlyAddFriendOn == nil && req.FriendApplyAutoAcceptOn == nil && req.PrivilegeOnlyCreateInviteGroupOn == nil && req.ShowLastOfflineOn == nil && req.ShowDeviceOnlineOn == nil {
 		c.ResponseError(errors.New("至少传入一个开关字段"))
 		return
 	}
@@ -1470,6 +1472,9 @@ func (m *Manager) privilegeGlobalUpdate(c *wkhttp.Context) {
 	}
 	if req.ShowLastOfflineOn != nil {
 		setMap["show_last_offline_on"] = normalizeSwitchValue(*req.ShowLastOfflineOn)
+	}
+	if req.ShowDeviceOnlineOn != nil {
+		setMap["show_device_online_on"] = normalizeSwitchValue(*req.ShowDeviceOnlineOn)
 	}
 	_, err = m.ctx.DB().Update("app_config").SetMap(setMap).Where("id > ?", 0).Exec()
 	if err != nil {

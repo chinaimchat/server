@@ -121,6 +121,31 @@ func (s *Service) showLastOfflineOn() bool {
 	return appconfig.ShowLastOfflineOn == 1
 }
 
+func (s *Service) showDeviceOnlineOn() bool {
+	appconfig, err := s.commonService.GetAppConfig()
+	if err != nil {
+		s.Warn("查询应用配置失败，默认展示分端在线信息", zap.Error(err))
+		return true
+	}
+	if appconfig == nil {
+		return true
+	}
+	return appconfig.ShowDeviceOnlineOn == 1
+}
+
+// deviceOnlineHiddenAPIFlag 与业务 device_flag(0/1/2) 区分：对非本人返回该值时，客户端不应渲染「Web/手机/PC 在线」类文案，仅依据 online。
+var deviceOnlineHiddenAPIFlag = config.DeviceFlag(3)
+
+func (s *Service) sanitizeDeviceFlagForPeer(targetUID, loginUID string, flag config.DeviceFlag) config.DeviceFlag {
+	if targetUID == loginUID {
+		return flag
+	}
+	if s.showDeviceOnlineOn() {
+		return flag
+	}
+	return deviceOnlineHiddenAPIFlag
+}
+
 func (s *Service) sanitizeLastOffline(lastOffline int, showLastOfflineOn bool) int {
 	if lastOffline <= 0 {
 		return 0
@@ -250,6 +275,7 @@ func (s *Service) GetUserDetail(uid string, loginUID string) (*UserDetailResp, e
 		beBlacklist = toUserSetting.Blacklist
 	}
 	showLastOfflineOn := s.showLastOfflineOn()
+	deviceFlag = s.sanitizeDeviceFlagForPeer(uid, loginUID, deviceFlag)
 	return NewUserDetailResp(model, remark, loginUID, sourceFrom, online, s.sanitizeLastOffline(lastOffline, showLastOfflineOn), deviceFlag, follow, blacklist, beDeleted, beBlacklist, userSetting, vercode), nil
 }
 
@@ -350,6 +376,7 @@ func (s *Service) GetUserDetails(uids []string, loginUID string) ([]*UserDetailR
 			lastOffline = onlineStatus.LastOffline
 			deviceFlag = config.DeviceFlag(onlineStatus.DeviceFlag)
 		}
+		deviceFlag = s.sanitizeDeviceFlagForPeer(uid, loginUID, deviceFlag)
 		follow := 0
 		nameRemark := ""
 		sourceFrom := ""
@@ -404,12 +431,17 @@ func (s *Service) GetUserOnlineStatus(uids []string) ([]*OnLineUserResp, error) 
 	}
 	list := make([]*OnLineUserResp, 0)
 	showLastOfflineOn := s.showLastOfflineOn()
+	showDeviceOnline := s.showDeviceOnlineOn()
 	for _, user := range result {
+		df := user.DeviceFlag
+		if !showDeviceOnline {
+			df = uint8(deviceOnlineHiddenAPIFlag)
+		}
 		list = append(list, &OnLineUserResp{
 			UID:         user.UID,
 			LastOffline: s.sanitizeLastOffline(user.LastOffline, showLastOfflineOn),
 			Online:      user.Online,
-			DeviceFlag:  user.DeviceFlag,
+			DeviceFlag:  df,
 		})
 	}
 	return list, nil

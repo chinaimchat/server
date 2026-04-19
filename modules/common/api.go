@@ -379,6 +379,7 @@ func (cn *Common) appConfig(c *wkhttp.Context) {
 		WebURL:                         cn.ctx.GetConfig().External.WebLoginURL,
 		RevokeSecond:                   revokeSecond,
 		ShowLastOfflineOn:              appConfigM.ShowLastOfflineOn,
+		ShowDeviceOnlineOn:             appConfigM.ShowDeviceOnlineOn,
 		InviteCodeSystemOn:             appConfigM.InviteCodeSystemOn,
 		RegisterInviteOn:               registerInviteOn,
 		SendWelcomeMessageOn:           appConfigM.SendWelcomeMessageOn,
@@ -541,6 +542,7 @@ type appConfigResp struct {
 	RevokeSecond                   int    `json:"revoke_second"`
 	AppleSignIn                    int    `json:"apple_sign_in"`
 	ShowLastOfflineOn              int    `json:"show_last_offline_on"`              // 是否允许客户端看到对方上次在线时间
+	ShowDeviceOnlineOn             int    `json:"show_device_online_on"`             // 是否展示对方分端在线（Web/手机/PC）；0 时服务端对非本人隐藏 device_flag 含义
 	InviteCodeSystemOn             int    `json:"invite_code_system_on"`               // 邀请码系统总开关
 	RegisterInviteOn               int    `json:"register_invite_on"`                  // 开启注册邀请机制
 	SendWelcomeMessageOn           int    `json:"send_welcome_message_on"`             // 开启注册登录发送欢迎语

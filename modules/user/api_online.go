@@ -23,6 +23,18 @@ func (u *User) showLastOfflineOn() bool {
 	return appconfig.ShowLastOfflineOn == 1
 }
 
+func (u *User) showDeviceOnlineOn() bool {
+	appconfig, err := u.commonService.GetAppConfig()
+	if err != nil {
+		u.Warn("查询应用配置失败，默认展示分端在线信息", zap.Error(err))
+		return true
+	}
+	if appconfig == nil {
+		return true
+	}
+	return appconfig.ShowDeviceOnlineOn == 1
+}
+
 func (u *User) sanitizeLastOffline(lastOffline int, showLastOfflineOn bool) int {
 	if lastOffline <= 0 {
 		return 0
@@ -72,6 +84,8 @@ func (u *User) onlinelistWithUIDs(c *wkhttp.Context) {
 	}
 	onlineResps := make([]*userOnlineResp, 0)
 	showLastOfflineOn := u.showLastOfflineOn()
+	loginUID := c.GetLoginUID()
+	showDeviceOnline := u.showDeviceOnlineOn()
 	if len(uids) > 0 {
 		onlines, err := u.onlineDB.queryUserOnlineRecets(uids)
 		if err != nil {
@@ -83,6 +97,9 @@ func (u *User) onlinelistWithUIDs(c *wkhttp.Context) {
 			for _, online := range onlines {
 				resp := newUserOnlineResp(online)
 				resp.LastOffline = u.sanitizeLastOffline(resp.LastOffline, showLastOfflineOn)
+				if !showDeviceOnline && online.UID != loginUID {
+					resp.DeviceFlag = 3
+				}
 				onlineResps = append(onlineResps, resp)
 			}
 		}
@@ -119,6 +136,13 @@ func (u *User) onlineList(c *wkhttp.Context) {
 	for _, resp := range resps {
 		if resp != nil {
 			resp.LastOffline = u.sanitizeLastOffline(resp.LastOffline, showLastOfflineOn)
+		}
+	}
+	if !u.showDeviceOnlineOn() {
+		for _, resp := range resps {
+			if resp != nil {
+				resp.DeviceFlag = 3
+			}
 		}
 	}
 	pcOnlineB, err := u.onlineDB.exist(c.GetLoginUID(), config.PC.Uint8(), 1)

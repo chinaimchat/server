@@ -49,6 +49,7 @@ type appConfigModel struct {
 	FriendApplyAutoAcceptOn          int    // 添加好友免验证
 	PrivilegeOnlyCreateInviteGroupOn int    // 仅特权用户可建群与邀请成员
 	ShowLastOfflineOn                int    // 是否允许客户端看到对方上次在线时间
+	ShowDeviceOnlineOn               int    // 是否向客户端展示对方分端在线（Web/手机/PC）；0 时对非本人隐藏 device_flag 含义
 	InviteCodeSystemOn               int    // 邀请码系统总开关
 	RegisterInviteOn                 int    // 开启注册邀请机制
 	SendWelcomeMessageOn             int    // 开启注册登录发送欢迎语
