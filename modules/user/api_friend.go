@@ -497,9 +497,11 @@ func (f *Friend) friendApply(c *wkhttp.Context) {
 				"content": remark,
 				"type":    common.Text,
 			}))
+			// 这条招呼语是「申请人(fromUID)」对「被添加方(req.ToUID)」的自我介绍，
+			// 必须由申请人发出，否则在申请人客户端会被显示在对方一侧。
 			_ = f.ctx.SendMessage(&config.MsgSendReq{
-				FromUID:     req.ToUID,
-				ChannelID:   fromUID,
+				FromUID:     fromUID,
+				ChannelID:   req.ToUID,
 				ChannelType: common.ChannelTypePerson.Uint8(),
 				Payload:     payload,
 				Header: config.MsgHeader{
