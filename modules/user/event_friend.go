@@ -418,13 +418,15 @@ func (f *Friend) autoMakeFriend(uid, toUID, sourceVercode, welcomeMessage string
 	// 严格复用手动通过好友后的同一推送逻辑（同一函数、同一默认文案来源）。
 	_ = f.sendFriendAcceptedNotice(uid, toUID, fromName)
 	if welcomeMessage != "" {
+		// 邀请码自动加好友的「好友欢迎语」以普通聊天文字（type=Text）发送，
+		// 由该好友账号发给新用户，呈现为正常聊天气泡，与「通用设置-登录欢迎语」一致。
 		_ = f.ctx.SendMessage(&config.MsgSendReq{
 			FromUID:     toUID,
 			ChannelID:   uid,
 			ChannelType: common.ChannelTypePerson.Uint8(),
 			Payload: []byte(util.ToJson(map[string]interface{}{
 				"content": welcomeMessage,
-				"type":    common.Tip,
+				"type":    common.Text,
 			})),
 			Header: config.MsgHeader{RedDot: 1},
 		})
