@@ -1,0 +1,10 @@
+-- +migrate Up
+
+ALTER TABLE `prohibit_words` ADD COLUMN `is_regex` TINYINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS `sensitive_words` (
+  id         INTEGER     NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  content    VARCHAR(200) NOT NULL DEFAULT '',
+  is_regex   TINYINT     NOT NULL DEFAULT 0,
+  created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

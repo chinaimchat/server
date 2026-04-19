@@ -1,0 +1,43 @@
+# 本地 go build 产物，勿提交（体积大且随构建变化）
+bin/tsdd-api
+# 根目录下与仓库同名的可执行文件（勿把二进制提交进 Git）
+/chinaim-server
+server.pid
+
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
+.glide/
+
+.idea/
+
+*.socket
+
+*.db
+
+*.sqlite
+
+*.log
+.DS_Store
+
+.VSCodeCounter/
+
+logs/
+
+wukongimdata/.env
+.env
+wukongimdata/
+tmp/
+
+# APNs/推送证书一般不应提交到仓库（仅供本机部署使用）
+configs/push/*.p12

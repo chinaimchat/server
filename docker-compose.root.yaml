@@ -1,0 +1,5 @@
+# 编排定义在 **server 仓库** 根目录的 docker-compose.yaml（与官方分仓一致）。
+# 部署根目录下须并列：server、web、manager、wukongim、.env、数据目录等。
+# 本文件仅作 include 入口，便于在**部署根目录**执行 docker compose（与 scripts 一致）。
+include:
+  - path: server/docker-compose.yaml

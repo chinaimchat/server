@@ -1,0 +1,123 @@
+# 与官方一致：在**部署根目录**并列克隆 server、web、manager 三仓库，例如：
+#   deploy/server  deploy/web  deploy/manager
+# 本文件位于 server 仓库根目录；构建上下文为 ../web、../manager（目录名与 clone 名一致）。
+services:
+  wukongim:  # 小龙虾通讯服务（龙虾IM，容器名仍为 wukongim）
+    image: registry.cn-shanghai.aliyuncs.com/wukongim/wukongim:v2
+    restart: always
+    ports:
+      - "5100:5100"
+      - "5200:5200"
+      - "5300:5300"
+    volumes:
+      - ../wukongim:/root/wukongim
+    env_file:
+      - ../.env
+    environment:
+      - WK_EXTERNAL_IP=${EXTERNAL_IP}
+      - WK_CLUSTER_APIURL=http://127.0.0.1:5001
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: server:v1
+    # 本地构建的镜像，勿向 docker.io 拉取（否则 web:v1 / server:v1 / houtai:v1 not found）
+    pull_policy: never
+    restart: always
+    command: "api"
+    healthcheck:
+      test: "wget -q -Y off -O /dev/null http://localhost:8090/v1/ping > /dev/null 2>&1"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    depends_on:
+       redis:
+         condition: service_healthy
+       mysql:
+         condition: service_healthy
+       wukongim:
+         condition: service_started
+    ports:
+      - "8090:8090"
+    volumes:
+      - ../tsdd:/home/tsdddata
+      - ../tsdd/configs:/home/configs
+    env_file:
+      - ../.env
+    environment:
+      - TS_DB_MYSQLADDR=root:${MYSQL_ROOT_PASSWORD}@tcp(mysql)/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=true&loc=Local
+      - TS_EXTERNAL_IP=${EXTERNAL_IP}
+      - TS_FILESERVICE=${TS_FILESERVICE}
+      - TS_MINIO_ACCESSKEYID=${MINIO_ROOT_USER}
+      - TS_MINIO_SECRETACCESSKEY=${MINIO_ROOT_PASSWORD}
+      - TS_AVATAR_DEFAULTBASEURL=
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    image: web:v1
+    pull_policy: never
+    restart: always
+    environment:
+      - API_URL=http://server:8090/
+    ports:
+      - "82:80"
+    depends_on:
+      server:
+        condition: service_healthy
+  manager:
+    build:
+      context: ../manager
+      dockerfile: Dockerfile
+    image: houtai:v1
+    pull_policy: never
+    restart: always
+    environment:
+      - API_URL=http://server:8090/
+    ports:
+      - "83:80"
+    depends_on:
+      server:
+        condition: service_healthy
+  minio:
+    image: registry.cn-shanghai.aliyuncs.com/wukongim/minio:RELEASE.2023-07-18T17-49-40Z
+    expose:
+      - "9000"
+      - "9001"
+    command: "server /data --console-address ':9001'"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - ../miniodata:/data
+  mysql:
+    image: registry.cn-shanghai.aliyuncs.com/wukongim/mysql:8.0.33
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+    volumes:
+      - ../mysqldata:/var/lib/mysql
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+  redis:
+    image: registry.cn-shanghai.aliyuncs.com/wukongim/redis:7.2.3
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  adminer:
+    image: registry.cn-shanghai.aliyuncs.com/wukongim/adminer:latest
+    ports:
+      - 8306:8080

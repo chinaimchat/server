@@ -1,0 +1,31 @@
+# 与「整仓 TSDD 根目录」同层时的前端/杂项目，不参与 Go 镜像构建
+xinWeb/
+xinManager/
+web/
+manager/
+node_modules/
+node_modules_xinweb/
+wukongim/
+miniodata/
+mysqldata/
+backups/
+testenv/
+tsdd/
+
+# 大包与旧副本
+*.zip
+Server/
+Server.zip
+
+# 运行数据与日志
+logs/
+wukongimdata/
+*.log
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# 文档（可选，减小上下文）
+docs/

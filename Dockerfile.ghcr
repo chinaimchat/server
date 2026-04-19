@@ -1,0 +1,20 @@
+FROM debian:bookworm-slim
+
+ARG TARGETARCH
+WORKDIR /app
+
+ENV TZ=Asia/Shanghai
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY assets ./assets
+COPY configs ./configs
+COPY --chmod=0755 linux_${TARGETARCH} main
+# 约定：若 CI 在打包 ghcr 镜像前执行了 scripts/fetch-twemoji72.sh，
+# 则 assets/twemoji72/ 内置了 Twemoji 72×72 PNG，运行时无需出网。
+ENV TWEMOJI_72_DIR=/app/assets/twemoji72
+CMD /app/main

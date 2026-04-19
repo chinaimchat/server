@@ -1,0 +1,7 @@
+-- +migrate Up
+
+ALTER TABLE `sensitive_words` ADD COLUMN `category` VARCHAR(40) NOT NULL DEFAULT 'default';
+ALTER TABLE `sensitive_words` ADD COLUMN `level` TINYINT NOT NULL DEFAULT 1;
+ALTER TABLE `sensitive_words` ADD COLUMN `is_deleted` TINYINT NOT NULL DEFAULT 0;
+ALTER TABLE `sensitive_words` ADD COLUMN `version` INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE `sensitive_words` ADD COLUMN `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
