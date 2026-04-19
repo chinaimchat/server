@@ -146,10 +146,11 @@ func (d *DB) QuerySharedGroupMemberUIDs(uid string) ([]string, error) {
 		return nil, nil
 	}
 	var uids []string
+	// status=1 与群模块 queryMembers 一致：仅正常在群成员（排除黑名单等异常状态）
 	_, err := d.session.Select("DISTINCT gm2.uid").
 		From(dbr.I("group_member").As("gm1")).
 		Join(dbr.I("group_member").As("gm2"), "gm1.group_no = gm2.group_no").
-		Where("gm1.uid = ? AND gm1.is_deleted = 0 AND gm2.is_deleted = 0 AND gm2.uid <> ?", uid, uid).
+		Where("gm1.uid = ? AND gm1.is_deleted = 0 AND gm1.status = 1 AND gm2.is_deleted = 0 AND gm2.status = 1 AND gm2.uid <> ?", uid, uid).
 		Load(&uids)
 	return uids, err
 }
