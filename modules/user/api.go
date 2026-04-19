@@ -620,20 +620,36 @@ func (u *User) uploadAvatar(c *wkhttp.Context) {
 		c.ResponseError(errors.New("上传文件失败！"))
 		return
 	}
+	// CMD 推送目标必须覆盖「所有可能在 UI 里看到 loginUID 头像的人」，否则对方
+	// 本地的 channelAvatarTag 不会更新，avatar URL 上的 ?v= 不变，浏览器/客户端
+	// 会一直命中旧缓存（HTTP Cache-Control: max-age=86400）。
+	// 推送目标 = 自己（多端同步） ∪ 所有好友 ∪ 所有同群成员（含非好友）。
+	subscriberSet := map[string]struct{}{loginUID: {}}
+
 	friends, err := u.friendDB.QueryFriends(loginUID)
 	if err != nil {
-		u.Error("查询用户好友失败")
-		return
-	}
-	// 必须包含 loginUID 自己：用户在多端（A/B 两台 PC、手机等）登录时，
-	// A 端上传新头像后，B 端必须同样收到 userAvatarUpdate 命令，
-	// 才会刷新本地缓存键（avatar URL 上的 ?v=…），否则 B 端会一直显示旧/系统头像。
-	subscriberSet := map[string]struct{}{loginUID: {}}
-	for _, friend := range friends {
-		if friend != nil && friend.ToUID != "" {
-			subscriberSet[friend.ToUID] = struct{}{}
+		u.Error("查询用户好友失败", zap.Error(err))
+	} else {
+		for _, friend := range friends {
+			if friend != nil && friend.ToUID != "" {
+				subscriberSet[friend.ToUID] = struct{}{}
+			}
 		}
 	}
+
+	// 关键修复：把"和我同处一个群"的所有人也加进去，覆盖群里非好友的场景，
+	// 否则群聊气泡 / 点群成员头像看资料卡 一直显示旧头像。
+	groupMates, err := u.db.QuerySharedGroupMemberUIDs(loginUID)
+	if err != nil {
+		u.Error("查询同群成员失败", zap.Error(err))
+	} else {
+		for _, uid := range groupMates {
+			if uid != "" {
+				subscriberSet[uid] = struct{}{}
+			}
+		}
+	}
+
 	subscribers := make([]string, 0, len(subscriberSet))
 	for uid := range subscriberSet {
 		subscribers = append(subscribers, uid)
@@ -935,17 +951,37 @@ func (u *User) userUpdateWithField(c *wkhttp.Context) {
 			}
 		}
 	}
-	// 发送频道刚刚消息给登录好友
+	// 发送频道更新 CMD 给所有可能"看到我资料"的人：
+	// 自己（多端同步） ∪ 所有好友 ∪ 所有同群成员（含非好友）。
+	// 不然改了昵称后，群里非好友只会看到旧昵称缓存。
+	subscriberSet := map[string]struct{}{loginUID: {}}
+
 	friends, err := u.friendDB.QueryFriends(loginUID)
 	if err != nil {
 		u.Error("查询用户好友错误", zap.Error(err))
 		c.ResponseError(errors.New("查询用户好友错误"))
 		return
 	}
-	if len(friends) > 0 {
-		uids := make([]string, 0)
-		for _, friend := range friends {
-			uids = append(uids, friend.ToUID)
+	for _, friend := range friends {
+		if friend != nil && friend.ToUID != "" {
+			subscriberSet[friend.ToUID] = struct{}{}
+		}
+	}
+	groupMates, err := u.db.QuerySharedGroupMemberUIDs(loginUID)
+	if err != nil {
+		u.Error("查询同群成员失败", zap.Error(err))
+	} else {
+		for _, uid := range groupMates {
+			if uid != "" {
+				subscriberSet[uid] = struct{}{}
+			}
+		}
+	}
+
+	if len(subscriberSet) > 0 {
+		uids := make([]string, 0, len(subscriberSet))
+		for uid := range subscriberSet {
+			uids = append(uids, uid)
 		}
 		err = u.ctx.SendCMD(config.MsgCMDReq{
 			CMD:         common.CMDChannelUpdate,

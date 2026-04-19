@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"strings"
 
 	"github.com/TangSengDaoDao/TangSengDaoDaoServerLib/config"
 	"github.com/TangSengDaoDao/TangSengDaoDaoServerLib/pkg/db"
@@ -134,6 +135,23 @@ func (d *DB) QueryByUIDs(uids []string) ([]*Model, error) {
 	var models []*Model
 	_, err := d.session.Select("*").From("user").Where("uid in ?", uids).Load(&models)
 	return models, err
+}
+
+// QuerySharedGroupMemberUIDs 查询所有"与 uid 至少同处一个未删除群"的其他成员 uid。
+// 用途：A 改头像 / 改昵称时，除了好友，群里的非好友也必须收到 CMD 刷新本地 channelAvatarTag，
+// 否则在群聊气泡里、点 A 头像看资料卡时一直显示旧头像。
+// 注：返回结果**不包含** uid 自己，调用方需要自己再合并 loginUID。
+func (d *DB) QuerySharedGroupMemberUIDs(uid string) ([]string, error) {
+	if strings.TrimSpace(uid) == "" {
+		return nil, nil
+	}
+	var uids []string
+	_, err := d.session.Select("DISTINCT gm2.uid").
+		From(dbr.I("group_member").As("gm1")).
+		Join(dbr.I("group_member").As("gm2"), "gm1.group_no = gm2.group_no").
+		Where("gm1.uid = ? AND gm1.is_deleted = 0 AND gm2.is_deleted = 0 AND gm2.uid <> ?", uid, uid).
+		Load(&uids)
+	return uids, err
 }
 
 // QueryUserWithOnlyShortNo 通过short_no获取用户信息
