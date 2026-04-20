@@ -184,6 +184,10 @@ func newChannelRespWithUserDetailResp(user *UserDetailResp) *model.ChannelResp {
 	extraMap["vercode"] = user.Vercode
 	extraMap["screenshot"] = user.Screenshot
 	extraMap["revoke_remind"] = user.RevokeRemind
+	// 头像版本号：每次上传头像 bump（毫秒时间戳）。客户端拼到头像 URL 的 ?v= 上做缓存破坏。
+	// 即使错过 wk_userAvatarUpdate CMD（离线）、下次刷新频道信息也能拿到新值，
+	// URL 自动变化，绕过 OkHttp/SDWebImage/Glide/HTTP/浏览器各级缓存。
+	extraMap["avatar_update_at"] = user.AvatarUpdateAt
 	resp.Extra = extraMap
 
 	return resp

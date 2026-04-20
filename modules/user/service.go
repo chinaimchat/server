@@ -955,6 +955,7 @@ type UserDetailResp struct {
 	SourceDesc          string            `json:"source_desc"`            // 好友来源
 	Remark              string            `json:"remark"`                 //好友备注
 	IsUploadAvatar      int               `json:"is_upload_avatar"`       // 是否上传头像
+	AvatarUpdateAt      int64             `json:"avatar_update_at"`       // 头像更新时间(ms) 客户端用作 ?v= 缓存破坏
 	Status              int               `json:"status"`                 //用户状态 1 正常 2:黑名单
 	Robot               int               `json:"robot"`                  // 机器人0.否1.是
 	IsDestroy           int               `json:"is_destroy"`             // 是否注销0.否1.是
@@ -1027,6 +1028,7 @@ func NewUserDetailResp(m *Detail, remark, loginUID string, sourceFrom string, on
 		SourceDesc:     sourceFrom,
 		Remark:         remark,
 		IsUploadAvatar: m.IsUploadAvatar,
+		AvatarUpdateAt: m.AvatarUpdateAt,
 		Status:         status,
 		Robot:          m.Robot,
 		Username:       username,

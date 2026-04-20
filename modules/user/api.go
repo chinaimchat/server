@@ -654,21 +654,28 @@ func (u *User) uploadAvatar(c *wkhttp.Context) {
 	for uid := range subscriberSet {
 		subscribers = append(subscribers, uid)
 	}
+	// 头像版本号：毫秒时间戳，CMD 里和 DB 里必须是同一个值，否则
+	// 「在线收 CMD 立即更新本地 ?v= 的端」 与 「下次 fetchChannelInfo 拉到的端」
+	// 会出现两个版本，缓存破坏失败。
+	avatarUpdateAt := time.Now().UnixMilli()
+
+	//更改用户上传头像状态 + 推进版本号（先落库再发 CMD，确保对端 fetchChannelInfo 拿到的也是新值）
+	err = u.db.UpdateAvatarMeta(loginUID, avatarUpdateAt)
+	if err != nil {
+		u.Error("修改用户头像版本号失败！", zap.Error(err))
+		c.ResponseError(errors.New("修改用户是否修改头像错误！"))
+		return
+	}
+
 	if err = u.ctx.SendCMD(config.MsgCMDReq{
 		CMD:         common.CMDUserAvatarUpdate,
 		Subscribers: subscribers,
 		Param: map[string]interface{}{
-			"uid": loginUID,
+			"uid":              loginUID,
+			"avatar_update_at": avatarUpdateAt,
 		},
 	}); err != nil {
 		u.Error("发送个人头像更新命令失败！", zap.Error(err))
-	}
-	//更改用户上传头像状态
-	err = u.db.UpdateUsersWithField("is_upload_avatar", "1", loginUID)
-	if err != nil {
-		u.Error("修改用户是否修改头像错误！", zap.Error(err))
-		c.ResponseError(errors.New("修改用户是否修改头像错误！"))
-		return
 	}
 	c.ResponseOK()
 }
@@ -1555,10 +1562,12 @@ func (u *User) register(c *wkhttp.Context) {
 		c.ResponseError(errors.New("该用户已存在"))
 		return
 	}
-	//测试模式
+	// 测试模式：固定短信码（configs/tsdd.yaml 的 smsCode 或环境变量 TS_SMSCODE）。
+	// 须与客户端注册时 JSON 里的 `code` 一致（App 隐藏短信框时固定传 123456），
+	// 与邀请码字段 `invite_code` 无关；若 TS_SMSCODE 写成占位符会覆盖 yaml 导致误报。
 	if strings.TrimSpace(u.ctx.GetConfig().SMSCode) != "" {
 		if strings.TrimSpace(u.ctx.GetConfig().SMSCode) != req.Code {
-			c.ResponseError(errors.New("验证码错误"))
+			c.ResponseError(errors.New("短信验证码错误（与服务端固定码不一致，不是邀请码）"))
 			return
 		}
 	} else {

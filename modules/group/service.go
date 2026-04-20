@@ -559,6 +559,7 @@ type GroupResp struct {
 	Role                     int       `json:"role"`                        // 我在群聊里的角色
 	ForbiddenExpirTime       int64     `json:"forbidden_expir_time"`        // 我在此群的禁言过期时间
 	AllowMemberPinnedMessage int       `json:"allow_member_pinned_message"` //是否允许群成员置顶消息
+	AvatarUpdateAt           int64     `json:"avatar_update_at"`            // 群头像更新时间(ms) 客户端用作 ?v= 缓存破坏
 	CreatedAt                string    `json:"created_at"`
 	UpdatedAt                string    `json:"updated_at"`
 	Version                  int64     `json:"version"` // 群数据版本
@@ -590,6 +591,7 @@ func (g *GroupResp) from(model *DetailModel) *GroupResp {
 		Status:                   model.Status,
 		AllowViewHistoryMsg:      model.AllowViewHistoryMsg,
 		AllowMemberPinnedMessage: model.AllowMemberPinnedMessage,
+		AvatarUpdateAt:           model.AvatarUpdateAt,
 		CreatedAt:                model.CreatedAt.String(),
 		UpdatedAt:                model.UpdatedAt.String(),
 	}

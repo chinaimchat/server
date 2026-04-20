@@ -189,6 +189,8 @@ func newChannelRespWithGroupResp(groupResp *GroupResp) *model.ChannelResp {
 	extraMap["allow_view_history_msg"] = groupResp.AllowViewHistoryMsg
 	extraMap["group_type"] = groupResp.GroupType
 	extraMap["allow_member_pinned_message"] = groupResp.AllowMemberPinnedMessage
+	// 群头像版本号：每次群头像被更换 bump（毫秒时间戳）。客户端拼到群头像 URL 的 ?v= 上做缓存破坏。
+	extraMap["avatar_update_at"] = groupResp.AvatarUpdateAt
 	if groupResp.MemberCount != 0 {
 		extraMap["member_count"] = groupResp.MemberCount
 	}

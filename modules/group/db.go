@@ -282,10 +282,14 @@ func (d *DB) Update(model *Model) error {
 	return err
 }
 
-func (d *DB) updateAvatar(avatar string, groupNo string) error {
+// updateAvatar 群头像写库 + bump 版本号（毫秒时间戳）。
+// avatarUpdateAt 必须和发出去的 wk_groupAvatarUpdate CMD 里的值一致，
+// 否则在线收 CMD 立即更新本地 ?v= 的端 与 后续 fetchChannelInfo 拉到的端 会出现两个版本。
+func (d *DB) updateAvatar(avatar string, groupNo string, avatarUpdateAt int64) error {
 	_, err := d.session.Update("group").SetMap(map[string]interface{}{
 		"avatar":           avatar,
 		"is_upload_avatar": 1,
+		"avatar_update_at": avatarUpdateAt,
 	}).Where("group_no=?", groupNo).Exec()
 	return err
 }
@@ -526,6 +530,7 @@ type Model struct {
 	AllowViewHistoryMsg      int    // 是否允许新成员查看历史消息
 	AllowMemberPinnedMessage int    // 是否允许群成员置顶消息
 	Category                 string // 群分类
+	AvatarUpdateAt           int64  // 群头像更新时间(ms) 每次上传群头像 bump，客户端用作 ?v= 缓存破坏
 	db.BaseModel
 }
 

@@ -454,7 +454,9 @@ func (g *Group) avatarUpload(c *wkhttp.Context) {
 		c.ResponseError(errors.New("上传文件失败！"))
 		return
 	}
-	err = g.db.updateAvatar(groupAvatarPath, groupNo)
+	// 群头像版本号：毫秒时间戳，CMD 与 DB 必须同值，避免多端缓存破坏不一致。
+	avatarUpdateAt := time.Now().UnixMilli()
+	err = g.db.updateAvatar(groupAvatarPath, groupNo, avatarUpdateAt)
 	if err != nil {
 		g.Error("头像修改失败！", zap.String("group_no", groupNo), zap.Error(err))
 		c.ResponseError(errors.New("头像修改失败！"))
@@ -466,7 +468,8 @@ func (g *Group) avatarUpload(c *wkhttp.Context) {
 		ChannelType: common.ChannelTypeGroup.Uint8(),
 		CMD:         common.CMDGroupAvatarUpdate,
 		Param: map[string]interface{}{
-			"group_no": groupNo,
+			"group_no":         groupNo,
+			"avatar_update_at": avatarUpdateAt,
 		},
 	})
 	if err != nil {

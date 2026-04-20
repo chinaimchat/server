@@ -168,6 +168,18 @@ func (d *DB) UpdateUsersWithField(field string, value string, uid string) error 
 	return err
 }
 
+// UpdateAvatarMeta 上传头像成功后调用，原子更新 is_upload_avatar 和 avatar_update_at。
+// avatarUpdateAt 是毫秒时间戳，被客户端拼到头像 URL 的 ?v= 上做缓存破坏；
+// 必须和发出去的 wk_userAvatarUpdate CMD 里的 avatar_update_at 一致，否则
+// 「在线收到 CMD 立刻更新的端」和「下次 fetchChannelInfo 拉到的端」会拿到两个版本。
+func (d *DB) UpdateAvatarMeta(uid string, avatarUpdateAt int64) error {
+	_, err := d.session.Update("user").
+		Set("is_upload_avatar", 1).
+		Set("avatar_update_at", avatarUpdateAt).
+		Where("uid=?", uid).Exec()
+	return err
+}
+
 // AddOrRemoveBlacklist 添加黑名单
 func (d *DB) AddOrRemoveBlacklistTx(uid string, touid string, blacklist int, version int64, tx *dbr.Tx) error {
 	_, err := tx.Update("user_setting").Set("blacklist", blacklist).Set("version", version).Set("updated_at", dbr.Expr("Now()")).Where("uid=? and to_uid=?", uid, touid).Exec()
@@ -343,6 +355,7 @@ type Model struct {
 	Vercode           string //验证码
 	QRVercode         string // 二维码验证码
 	IsUploadAvatar    int    // 是否上传过头像0:未上传1:已上传
+	AvatarUpdateAt    int64  // 头像更新时间(ms) 每次上传头像 bump，客户端用作 ?v= 缓存破坏
 	Role              string // 角色 admin/superAdmin
 	Robot             int    // 机器人0.否1.是
 	MuteOfApp         int    // app是否禁音（当pc登录的时候app可以设置禁音，当pc登录后有效）
