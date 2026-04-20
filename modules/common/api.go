@@ -376,6 +376,7 @@ func (cn *Common) appConfig(c *wkhttp.Context) {
 		ShowLastOfflineOn:              appConfigM.ShowLastOfflineOn,
 		ShowDeviceOnlineOn:             appConfigM.ShowDeviceOnlineOn,
 		InviteCodeSystemOn:             appConfigM.InviteCodeSystemOn,
+		RegisterInviteOn:               appConfigM.InviteCodeSystemOn, // 兼容老端：镜像 invite_code_system_on
 		SendWelcomeMessageOn:           appConfigM.SendWelcomeMessageOn,
 		InviteSystemAccountJoinGroupOn: appConfigM.InviteSystemAccountJoinGroupOn,
 		RegisterUserMustCompleteInfoOn: appConfigM.RegisterUserMustCompleteInfoOn,
@@ -538,6 +539,10 @@ type appConfigResp struct {
 	ShowLastOfflineOn              int    `json:"show_last_offline_on"`              // 是否允许客户端看到对方上次在线时间
 	ShowDeviceOnlineOn             int    `json:"show_device_online_on"`             // 是否展示对方分端在线（Web/手机/PC）；0 时服务端对非本人隐藏 device_flag 含义
 	InviteCodeSystemOn             int    `json:"invite_code_system_on"`               // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
+	// RegisterInviteOn 仅作为响应字段的向后兼容镜像：老客户端（老 iOS / 老 web bundle / 老 Android）
+	// 只识别 register_invite_on 来决定是否展示邀请码输入栏；新客户端已改读 invite_code_system_on。
+	// 该字段不再持久化、不再接受写入，值永远等于 invite_code_system_on。
+	RegisterInviteOn               int    `json:"register_invite_on"`                  // 兼容老端展示邀请码输入栏（值镜像 invite_code_system_on）
 	SendWelcomeMessageOn           int    `json:"send_welcome_message_on"`             // 开启注册登录发送欢迎语
 	InviteSystemAccountJoinGroupOn int    `json:"invite_system_account_join_group_on"` // 开启系统账号加入群聊
 	RegisterUserMustCompleteInfoOn int    `json:"register_user_must_complete_info_on"` // 注册用户必须填写完整信息

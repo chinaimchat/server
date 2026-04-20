@@ -373,6 +373,7 @@ func (m *Manager) appconfig(c *wkhttp.Context) {
 		ShowLastOfflineOn:                showLastOfflineOn,
 		ShowDeviceOnlineOn:               showDeviceOnlineOn,
 		InviteCodeSystemOn:               inviteCodeSystemOn,
+		RegisterInviteOn:                 inviteCodeSystemOn, // 兼容老 manager bundle：镜像 invite_code_system_on
 		SendWelcomeMessageOn:             sendWelcomeMessageOn,
 		InviteSystemAccountJoinGroupOn:   inviteSystemAccountJoinGroupOn,
 		RegisterUserMustCompleteInfoOn:   registerUserMustCompleteInfoOn,
@@ -993,6 +994,9 @@ type managerAppConfigResp struct {
 	ShowLastOfflineOn                int    `json:"show_last_offline_on"`                  // 是否允许客户端看到对方上次在线时间
 	ShowDeviceOnlineOn               int    `json:"show_device_online_on"`                 // 是否展示对方分端在线（Web/手机/PC）
 	InviteCodeSystemOn               int    `json:"invite_code_system_on"`                 // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
+	// 向后兼容：老 manager bundle 的 currencysetting.vue 读的是 register_invite_on；
+	// 不再持久化、不再接受写入，值永远镜像 invite_code_system_on。
+	RegisterInviteOn                 int    `json:"register_invite_on"`                    // 兼容老 manager bundle（值镜像 invite_code_system_on）
 	SendWelcomeMessageOn             int    `json:"send_welcome_message_on"`               // 开启注册登录发送欢迎语
 	InviteSystemAccountJoinGroupOn   int    `json:"invite_system_account_join_group_on"`   // 开启系统账号加入群聊
 	RegisterUserMustCompleteInfoOn   int    `json:"register_user_must_complete_info_on"`   // 注册用户必须填写完整信息
