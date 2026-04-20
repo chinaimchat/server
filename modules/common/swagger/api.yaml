@@ -42,9 +42,9 @@ paths:
               search_by_phone:
                 type: integer
                 description: "是否开启手机号搜索 1.是"
-              register_invite_on:
+              invite_code_system_on:
                 type: integer
-                description: "是否开启注册邀请机制 1.开启"
+                description: "邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）1.开启"
               send_welcome_message_on:
                 type: integer
                 description: "是否开启注册登录发送欢迎语 1.开启"
@@ -96,9 +96,9 @@ paths:
               search_by_phone:
                 type: integer
                 description: "是否开启手机号搜索 1.是"
-              register_invite_on:
+              invite_code_system_on:
                 type: integer
-                description: "是否开启注册邀请机制 1.开启"
+                description: "邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）1.开启"
               send_welcome_message_on:
                 type: integer
                 description: "是否开启注册登录发送欢迎语 1.开启"
@@ -533,9 +533,9 @@ paths:
               revoke_second:
                 type: integer
                 description: "消息撤回限制时长"
-              register_invite_on:
+              invite_code_system_on:
                 type: integer
-                description: "是否开启注册邀请机制 1.开启"
+                description: "邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）1.开启"
               send_welcome_message_on:
                 type: integer
                 description: "是否开启注册登录发送欢迎语 1.开启"

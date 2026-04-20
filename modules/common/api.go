@@ -355,11 +355,6 @@ func (cn *Common) appConfig(c *wkhttp.Context) {
 	var phoneSearchOff int
 	var shortnoEditOff int
 	var revokeSecond int
-	registerInviteOn := appConfigM.RegisterInviteOn
-	// 兼容移动端（仅识别 register_invite_on）：邀请码系统开启时，同步视为开启邀请码注册。
-	if appConfigM.InviteCodeSystemOn == 1 && registerInviteOn == 0 {
-		registerInviteOn = 1
-	}
 	if cn.ctx.GetConfig().PhoneSearchOff {
 		phoneSearchOff = 1
 	}
@@ -381,7 +376,6 @@ func (cn *Common) appConfig(c *wkhttp.Context) {
 		ShowLastOfflineOn:              appConfigM.ShowLastOfflineOn,
 		ShowDeviceOnlineOn:             appConfigM.ShowDeviceOnlineOn,
 		InviteCodeSystemOn:             appConfigM.InviteCodeSystemOn,
-		RegisterInviteOn:               registerInviteOn,
 		SendWelcomeMessageOn:           appConfigM.SendWelcomeMessageOn,
 		InviteSystemAccountJoinGroupOn: appConfigM.InviteSystemAccountJoinGroupOn,
 		RegisterUserMustCompleteInfoOn: appConfigM.RegisterUserMustCompleteInfoOn,
@@ -543,8 +537,7 @@ type appConfigResp struct {
 	AppleSignIn                    int    `json:"apple_sign_in"`
 	ShowLastOfflineOn              int    `json:"show_last_offline_on"`              // 是否允许客户端看到对方上次在线时间
 	ShowDeviceOnlineOn             int    `json:"show_device_online_on"`             // 是否展示对方分端在线（Web/手机/PC）；0 时服务端对非本人隐藏 device_flag 含义
-	InviteCodeSystemOn             int    `json:"invite_code_system_on"`               // 邀请码系统总开关
-	RegisterInviteOn               int    `json:"register_invite_on"`                  // 开启注册邀请机制
+	InviteCodeSystemOn             int    `json:"invite_code_system_on"`               // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
 	SendWelcomeMessageOn           int    `json:"send_welcome_message_on"`             // 开启注册登录发送欢迎语
 	InviteSystemAccountJoinGroupOn int    `json:"invite_system_account_join_group_on"` // 开启系统账号加入群聊
 	RegisterUserMustCompleteInfoOn int    `json:"register_user_must_complete_info_on"` // 注册用户必须填写完整信息

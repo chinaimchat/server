@@ -68,7 +68,6 @@ func (s *service) GetAppConfig() (*AppConfigResp, error) {
 		ShowLastOfflineOn:                appConfigM.ShowLastOfflineOn,
 		ShowDeviceOnlineOn:               appConfigM.ShowDeviceOnlineOn,
 		InviteCodeSystemOn:               appConfigM.InviteCodeSystemOn,
-		RegisterInviteOn:                 appConfigM.RegisterInviteOn,
 		SendWelcomeMessageOn:             appConfigM.SendWelcomeMessageOn,
 		InviteSystemAccountJoinGroupOn:   appConfigM.InviteSystemAccountJoinGroupOn,
 		RegisterUserMustCompleteInfoOn:   appConfigM.RegisterUserMustCompleteInfoOn,
@@ -146,8 +145,7 @@ type AppConfigResp struct {
 	PrivilegeOnlyCreateInviteGroupOn int    // 仅特权用户可建群与邀请成员
 	ShowLastOfflineOn                int    // 是否允许客户端看到对方上次在线时间
 	ShowDeviceOnlineOn               int    // 是否向客户端展示对方分端在线（Web/手机/PC）
-	InviteCodeSystemOn               int    // 邀请码系统总开关
-	RegisterInviteOn                 int    // 是否开启注册邀请
+	InviteCodeSystemOn               int    // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
 	SendWelcomeMessageOn             int    // 是否发送登录欢迎语
 	InviteSystemAccountJoinGroupOn   int    // 是否允许邀请系统账号进入群聊
 	RegisterUserMustCompleteInfoOn   int    // 是否要求注册用户必须填写完整信息

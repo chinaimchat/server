@@ -74,7 +74,7 @@ func TestGetAppConfig(t *testing.T) {
 	err = f.appConfigDB.insert(&appConfigModel{
 		WelcomeMessage:                 "欢迎使用 AI私域课堂",
 		NewUserJoinSystemGroup:         1,
-		RegisterInviteOn:               1,
+		InviteCodeSystemOn:             1,
 		InviteSystemAccountJoinGroupOn: 1,
 		SendWelcomeMessageOn:           1,
 	})

@@ -265,8 +265,7 @@ func (m *Manager) updateConfig(c *wkhttp.Context) {
 		PrivilegeOnlyCreateInviteGroupOn int    `json:"privilege_only_create_invite_group_on"` // 仅特权用户可建群与邀请成员
 		ShowLastOfflineOn                int    `json:"show_last_offline_on"`                  // 是否允许客户端看到对方上次在线时间
 		ShowDeviceOnlineOn               *int   `json:"show_device_online_on,omitempty"`       // 是否展示对方分端在线；omit 时不改库
-		InviteCodeSystemOn               int    `json:"invite_code_system_on"`                 // 邀请码系统总开关
-		RegisterInviteOn                 int    `json:"register_invite_on"`                    // 开启注册邀请机制
+		InviteCodeSystemOn               int    `json:"invite_code_system_on"`                 // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
 		SendWelcomeMessageOn             int    `json:"send_welcome_message_on"`               // 开启注册登录发送欢迎语
 		InviteSystemAccountJoinGroupOn   int    `json:"invite_system_account_join_group_on"`   // 开启系统账号加入群聊
 		RegisterUserMustCompleteInfoOn   int    `json:"register_user_must_complete_info_on"`   // 注册用户必须填写完整信息
@@ -297,7 +296,6 @@ func (m *Manager) updateConfig(c *wkhttp.Context) {
 		configMap["show_device_online_on"] = *req.ShowDeviceOnlineOn
 	}
 	configMap["invite_code_system_on"] = req.InviteCodeSystemOn
-	configMap["register_invite_on"] = req.RegisterInviteOn
 	configMap["send_welcome_message_on"] = req.SendWelcomeMessageOn
 	configMap["invite_system_account_join_group_on"] = req.InviteSystemAccountJoinGroupOn
 	configMap["register_user_must_complete_info_on"] = req.RegisterUserMustCompleteInfoOn
@@ -327,7 +325,6 @@ func (m *Manager) appconfig(c *wkhttp.Context) {
 	var newUserJoinSystemGroup = 1
 	var welcomeMessage = ""
 	var searchByPhone = 1
-	var registerInviteOn = 0
 	var privilegeOnlyAddFriendOn = 0
 	var friendApplyAutoAcceptOn = 0
 	var privilegeOnlyCreateInviteGroupOn = 0
@@ -344,7 +341,6 @@ func (m *Manager) appconfig(c *wkhttp.Context) {
 		welcomeMessage = appconfig.WelcomeMessage
 		newUserJoinSystemGroup = appconfig.NewUserJoinSystemGroup
 		searchByPhone = appconfig.SearchByPhone
-		registerInviteOn = appconfig.RegisterInviteOn
 		privilegeOnlyAddFriendOn = appconfig.PrivilegeOnlyAddFriendOn
 		friendApplyAutoAcceptOn = appconfig.FriendApplyAutoAcceptOn
 		privilegeOnlyCreateInviteGroupOn = appconfig.PrivilegeOnlyCreateInviteGroupOn
@@ -371,7 +367,6 @@ func (m *Manager) appconfig(c *wkhttp.Context) {
 		WelcomeMessage:                   welcomeMessage,
 		NewUserJoinSystemGroup:           newUserJoinSystemGroup,
 		SearchByPhone:                    searchByPhone,
-		RegisterInviteOn:                 registerInviteOn,
 		PrivilegeOnlyAddFriendOn:         privilegeOnlyAddFriendOn,
 		FriendApplyAutoAcceptOn:          friendApplyAutoAcceptOn,
 		PrivilegeOnlyCreateInviteGroupOn: privilegeOnlyCreateInviteGroupOn,
@@ -997,8 +992,7 @@ type managerAppConfigResp struct {
 	PrivilegeOnlyCreateInviteGroupOn int    `json:"privilege_only_create_invite_group_on"` // 仅特权用户可建群与邀请成员
 	ShowLastOfflineOn                int    `json:"show_last_offline_on"`                  // 是否允许客户端看到对方上次在线时间
 	ShowDeviceOnlineOn               int    `json:"show_device_online_on"`                 // 是否展示对方分端在线（Web/手机/PC）
-	InviteCodeSystemOn               int    `json:"invite_code_system_on"`                 // 邀请码系统总开关
-	RegisterInviteOn                 int    `json:"register_invite_on"`                    // 开启注册邀请机制
+	InviteCodeSystemOn               int    `json:"invite_code_system_on"`                 // 邀请码系统总开关（唯一开关，控制注册是否必须填邀请码）
 	SendWelcomeMessageOn             int    `json:"send_welcome_message_on"`               // 开启注册登录发送欢迎语
 	InviteSystemAccountJoinGroupOn   int    `json:"invite_system_account_join_group_on"`   // 开启系统账号加入群聊
 	RegisterUserMustCompleteInfoOn   int    `json:"register_user_must_complete_info_on"`   // 注册用户必须填写完整信息

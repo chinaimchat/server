@@ -1500,14 +1500,13 @@ func (u *User) register(c *wkhttp.Context) {
 		c.ResponseError(err)
 		return
 	}
-	var registerInviteOn = 0
 	var inviteCodeSystemOn = 1
 	if appConfig != nil {
 		inviteCodeSystemOn = appConfig.InviteCodeSystemOn
-		registerInviteOn = appConfig.RegisterInviteOn
 	}
+	// 邀请码系统采用单一总开关 invite_code_system_on。
 	var invite *model.Invite
-	if inviteCodeSystemOn == 1 && registerInviteOn == 1 {
+	if inviteCodeSystemOn == 1 {
 		if registerInviteCode == "" {
 			c.ResponseError(errors.New("邀请码不能为空"))
 			return
