@@ -1146,6 +1146,25 @@ func (u *User) get(c *wkhttp.Context) {
 		}
 	}
 
+	// 分端在线显示规则：
+	// - 全局开关开启：按原逻辑展示；
+	// - 全局开关关闭：默认隐藏，但「本人 / 特权号 / 群管理(群主或管理员)」仍可查看真实 device_flag。
+	// 这里在 users/:uid 维度做兜底权限放行，避免普通用户在群场景看到分端文案。
+	if uid != loginUID && userDetailResp.DeviceFlag == deviceOnlineHiddenAPIFlag {
+		canViewDeviceOnline := false
+		if canViewJoinMeta { // 特权号或群管理（上面已判定）
+			canViewDeviceOnline = true
+		}
+		if canViewDeviceOnline {
+			onlineM, qErr := u.onlineDB.queryLastOnlineDeviceWithUID(uid)
+			if qErr != nil {
+				u.Warn("查询用户真实在线设备失败，保持隐藏设备标识", zap.Error(qErr), zap.String("uid", uid), zap.String("login_uid", loginUID))
+			} else if onlineM != nil {
+				userDetailResp.DeviceFlag = config.DeviceFlag(onlineM.DeviceFlag)
+			}
+		}
+	}
+
 	if userDetailResp.Follow == 1 || uid == loginUID {
 		isShowShortNo = true
 	}

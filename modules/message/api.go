@@ -90,6 +90,7 @@ func (m *Message) Route(r *wkhttp.WKHttp) {
 		message.POST("/sync", m.sync)                             // 同步消息 (写模式才用到 TODO：此方法未来将弃用)
 		message.POST("/syncack/:last_message_seq", m.syncack)     // 同步消息回执 （写模式才用到 TODO：此方法未来将弃用）
 		message.DELETE("", m.delete)                              // 删除消息
+		message.POST("/delete", m.delete)                         // 删除消息（兼容 Web/代理对 DELETE body 的兼容问题）
 		message.DELETE("/mutual", m.mutualDelete)                 // 双向删除消息
 		message.POST("/revoke", m.revoke)                         // 撤回消息
 		message.POST("/offset", m.offset)                         // 清除某频道消息
