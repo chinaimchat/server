@@ -1077,6 +1077,7 @@ func (u *User) get(c *wkhttp.Context) {
 		c.ResponseError(errors.New("用户不存在！"))
 		return
 	}
+	userDetailResp.Category = u.fillPrivilegeCategory(uid, userDetailResp.Category)
 	isShowShortNo := false
 	vercode := ""
 	var groupMember *model.GroupMemberResp
@@ -1236,6 +1237,7 @@ func (u *User) login(c *wkhttp.Context) {
 		c.ResponseError(errors.New("此账号不允许登录"))
 		return
 	}
+	userInfo.Category = u.fillPrivilegeCategory(userInfo.UID, userInfo.Category)
 	if util.MD5(util.MD5(req.Password)) != userInfo.Password {
 		c.ResponseError(errors.New("密码不正确！"))
 		return
@@ -1969,10 +1971,33 @@ func (u *User) loginWithAuthCode(c *wkhttp.Context) {
 		"username":   userModel.Username,
 		"uid":        userModel.UID,
 		"token":      token,
+		"category":   u.fillPrivilegeCategory(userModel.UID, userModel.Category),
 		"short_no":   userModel.ShortNo,
 		"avatar":     wkutil.AvatarAPIRelativePath(userModel.UID),
 		"im_pub_key": "",
 	})
+}
+
+// fillPrivilegeCategory 为历史数据兜底：
+// 若 user.category 为空但 uid 存在于 user_privilege，则按特权账号返回 customerService，
+// 避免客户端仅看 category 时把特权号误判为普通号。
+func (u *User) fillPrivilegeCategory(uid, category string) string {
+	if strings.TrimSpace(category) != "" || strings.TrimSpace(uid) == "" {
+		return category
+	}
+	type row struct {
+		UID string `db:"uid"`
+	}
+	var rows []*row
+	_, err := u.ctx.DB().Select("uid").From("user_privilege").Where("uid=?", uid).Limit(1).Load(&rows)
+	if err != nil {
+		u.Warn("查询 user_privilege 失败，保持原始 category", zap.String("uid", uid), zap.Error(err))
+		return category
+	}
+	if len(rows) > 0 {
+		return string(CategoryCustomerService)
+	}
+	return category
 }
 
 // 获取二维码数据的管道

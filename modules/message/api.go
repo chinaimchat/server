@@ -1154,37 +1154,47 @@ func (m *Message) isPrivilegeMutualDeleteEnabled(uid string, channelType uint8) 
 }
 
 func (m *Message) mutualDeleteMessageByReq(req *deleteReq, loginUID string, force bool) error {
-	messageSeqs := []uint32{req.MessageSeq}
 	fakeChannelID := req.ChannelID
 	if req.ChannelType == common.ChannelTypePerson.Uint8() {
 		fakeChannelID = common.GetFakeChannelIDWith(loginUID, req.ChannelID)
 	}
-	resp, err := m.ctx.IMGetWithChannelAndSeqs(req.ChannelID, req.ChannelType, loginUID, messageSeqs)
-	if err != nil {
-		return errors.New("查询消息错误")
-	}
-	if resp == nil || len(resp.Messages) == 0 {
-		return errors.New("消息不存在")
-	}
-	targetMsg := resp.Messages[0]
 
-	if !force && req.ChannelType == common.ChannelTypeGroup.Uint8() {
-		isManager, err := m.groupService.IsCreatorOrManager(req.ChannelID, loginUID)
+	messageIDStr := strings.TrimSpace(req.MessageID)
+
+	// 非强制删除时（例如群主/管理员自助删别人消息），仍需要查询消息来做权限校验；
+	// 特权号 force=true 时信任前端传入的 messageID/messageSeq，避免因 IM 查询返回空导致"消息不存在"误报。
+	if !force {
+		messageSeqs := []uint32{req.MessageSeq}
+		resp, err := m.ctx.IMGetWithChannelAndSeqs(req.ChannelID, req.ChannelType, loginUID, messageSeqs)
 		if err != nil {
-			return errors.New("查询登录用户群内权限错误")
+			return errors.New("查询消息错误")
 		}
-		if targetMsg.FromUID != loginUID && !isManager {
-			return errors.New("用户无权删除此消息")
+		if resp == nil || len(resp.Messages) == 0 {
+			return errors.New("消息不存在")
+		}
+		targetMsg := resp.Messages[0]
+
+		if req.ChannelType == common.ChannelTypeGroup.Uint8() {
+			isManager, err := m.groupService.IsCreatorOrManager(req.ChannelID, loginUID)
+			if err != nil {
+				return errors.New("查询登录用户群内权限错误")
+			}
+			if targetMsg.FromUID != loginUID && !isManager {
+				return errors.New("用户无权删除此消息")
+			}
+		}
+
+		if messageIDStr == "" {
+			messageIDStr = strconv.FormatInt(targetMsg.MessageID, 10)
 		}
 	}
 
-	messageIDStr := req.MessageID
-	if strings.TrimSpace(messageIDStr) == "" {
-		messageIDStr = strconv.FormatInt(targetMsg.MessageID, 10)
+	if messageIDStr == "" {
+		return errors.New("消息ID不能为空")
 	}
 
 	version := m.genMessageExtraSeq(fakeChannelID)
-	err = m.messageExtraDB.insertOrUpdateDeleted(&messageExtraModel{
+	err := m.messageExtraDB.insertOrUpdateDeleted(&messageExtraModel{
 		MessageID:   messageIDStr,
 		ChannelID:   fakeChannelID,
 		ChannelType: req.ChannelType,
