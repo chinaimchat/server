@@ -98,7 +98,7 @@ func (h *HMSPush) Push(deviceToken string, payload Payload) error {
 					"title":         payload.GetTitle(),
 					"body":          payload.GetContent(),
 					"sound":         sound,
-					"importance":    "NORMAL",
+					"importance":    "HIGH",
 					"default_sound": false,
 					"channel_id":    channelID,
 					"click_action": map[string]interface{}{
