@@ -730,14 +730,11 @@ func (f *Friend) friendSure(c *wkhttp.Context) {
 		c.ResponseError(errors.New("申请人不存在"))
 		return
 	}
-	// 通过方的一句招呼：优先用请求里的 remark（同意方自己写的介绍），否则默认用同意方昵称（勿再用申请人申请时的 remark，避免「像在介绍对方」）
-	greeting := strings.TrimSpace(req.Remark)
-	if greeting == "" {
-		if n := strings.TrimSpace(loginUser.Name); n != "" {
-			greeting = fmt.Sprintf("我是%s", n)
-		} else {
-			greeting = "我通过了你的好友申请"
-		}
+	// 申请方在加好友时填写的招呼语（例如“我是技术”），
+	// 通过后应以“申请方 -> 通过方”方向写入会话，避免在通过方侧显示为自己发送。
+	applyRemark := strings.TrimSpace(fmt.Sprint(valueMap["remark"]))
+	if applyRemark == "" {
+		applyRemark = fmt.Sprintf("我是%s", strings.TrimSpace(applyUser.Name))
 	}
 	if strings.TrimSpace(applyUID) == "" || strings.TrimSpace(vercode) == "" {
 		c.ResponseError(errors.New("好友申请无效或已过期！"))
@@ -889,13 +886,13 @@ func (f *Friend) friendSure(c *wkhttp.Context) {
 	}
 
 	payload := []byte(util.ToJson(map[string]interface{}{
-		"content": greeting,
+		"content": applyRemark,
 		"type":    common.Text,
 	}))
 
 	err = f.ctx.SendMessage(&config.MsgSendReq{
-		FromUID:     loginUID,
-		ChannelID:   applyUID,
+		FromUID:     applyUID,
+		ChannelID:   loginUID,
 		ChannelType: common.ChannelTypePerson.Uint8(),
 		Payload:     payload,
 		Header: config.MsgHeader{
