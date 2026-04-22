@@ -289,7 +289,7 @@ func (f *File) uploadFile(c *wkhttp.Context) {
 		return
 	}
 	relativePath := fmt.Sprintf("file/preview/%s%s", fileType, path)
-	absoluteURL := wkutil.FullAPIURL(f.ctx.GetConfig().External.APIBaseURL, relativePath)
+	absoluteURL := wkutil.FullAPIURL(wkutil.RequestOrExternalAPIBaseURL(c.Request, f.ctx.GetConfig().External.APIBaseURL), relativePath)
 	if signatureInt == 1 {
 		encoded := base64.StdEncoding.EncodeToString(sign[:])
 		c.Response(map[string]interface{}{

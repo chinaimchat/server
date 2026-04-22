@@ -85,6 +85,58 @@ func SameSiteFilePreviewPath(r *http.Request, abs string) string {
 	return path
 }
 
+// RequestBaseURL 根据当前请求推导出不带路径的站点根（scheme://host），用于二维码等「对外可被再次扫描/访问」的链接拼接。
+// 与 RequestAPIBaseURL 的区别：此函数不附加 /v1 与 X-Forwarded-Prefix，仅返回 scheme://host。
+// 接入多域名 302 + 域名列表重试方案后，客户端实际落地域名可能在 External.BaseURL 之外，
+// 用固定 External.BaseURL 生成 QR 会把 QR 锁死在单一域名，单点故障仍旧会让扫码链路断掉。
+func RequestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if s := r.Header.Get("X-Forwarded-Proto"); s != "" {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if s == "http" || s == "https" {
+			scheme = s
+		}
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = strings.TrimSpace(h)
+		if idx := strings.Index(host, ","); idx > 0 {
+			host = strings.TrimSpace(host[:idx])
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+// RequestOrExternalBaseURL 优先使用当前请求的 scheme://host（与客户端当前落地域名一致），
+// 无法推导（例如本机调试无 Host）时回退到配置里的 External.BaseURL。
+func RequestOrExternalBaseURL(r *http.Request, externalBaseURL string) string {
+	if base := RequestBaseURL(r); base != "" {
+		return base
+	}
+	return externalBaseURL
+}
+
+// RequestOrExternalAPIBaseURL 优先按当前请求推出 API 根（scheme://host[/prefix]/v1），
+// 推导失败时回退到配置里的 External.APIBaseURL。
+// 用途：把返给客户端的文件 / 媒体 / 下载 URL 的 host 与客户端当前落地域名对齐，
+// 避免在多域名 302 + 重试域名方案里把链接锁死在某个单点域名。
+// 背景任务（无 http.Request）请直接使用 External.APIBaseURL。
+func RequestOrExternalAPIBaseURL(r *http.Request, externalAPIBaseURL string) string {
+	if base := RequestAPIBaseURL(r); base != "" {
+		return base
+	}
+	return externalAPIBaseURL
+}
+
 // AvatarAPIRelativePath 用户头像 GET 的相对路径（带 .png 后缀），对应路由 GET /v1/users/:uid/avatar.png。
 // 无后缀的 .../avatar 易被 Glide 等库误判为流媒体而走 MediaMetadataRetriever，出现 setDataSource 0x80000000 与 Skia unimplemented。
 func AvatarAPIRelativePath(uid string) string {

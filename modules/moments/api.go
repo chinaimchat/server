@@ -167,8 +167,9 @@ func (m *Moments) attachmentMoments(c *wkhttp.Context) {
 			}
 		}
 
+		apiBase := wkutil.RequestOrExternalAPIBaseURL(c.Request, m.ctx.GetConfig().External.APIBaseURL)
 		for _, model := range list {
-			momentResps = append(momentResps, m.getMomentResp(loginUID, model, make([]*likeResp, 0), make([]*commentResp, 0)))
+			momentResps = append(momentResps, m.getMomentResp(apiBase, loginUID, model, make([]*likeResp, 0), make([]*commentResp, 0)))
 		}
 	}
 
@@ -414,6 +415,7 @@ func (m *Moments) list(c *wkhttp.Context) {
 	for _, moment := range momentList {
 		momentMap[moment.MomentNo] = moment
 	}
+	apiBase := wkutil.RequestOrExternalAPIBaseURL(c.Request, m.ctx.GetConfig().External.APIBaseURL)
 	for _, momentUser := range momentUsers {
 		likeResps, commentResps, err := m.getComments(momentUser.MomentNo, loginUID)
 		if err != nil {
@@ -421,7 +423,7 @@ func (m *Moments) list(c *wkhttp.Context) {
 			return
 		}
 		if momentMap[momentUser.MomentNo] != nil {
-			momentResps = append(momentResps, m.getMomentResp(loginUID, momentMap[momentUser.MomentNo], likeResps, commentResps))
+			momentResps = append(momentResps, m.getMomentResp(apiBase, loginUID, momentMap[momentUser.MomentNo], likeResps, commentResps))
 		}
 	}
 	c.Response(momentResps)
@@ -517,12 +519,13 @@ func (m *Moments) detail(c *wkhttp.Context) {
 		c.ResponseError(err)
 		return
 	}
-	c.Response(m.getMomentResp(loginUID, model, likeResps, commentResps))
+	apiBase := wkutil.RequestOrExternalAPIBaseURL(c.Request, m.ctx.GetConfig().External.APIBaseURL)
+	c.Response(m.getMomentResp(apiBase, loginUID, model, likeResps, commentResps))
 }
 
 // 返回数据
-func (m *Moments) getMomentResp(loginUID string, model *model, likeResps []*likeResp, commentResps []*commentResp) *momentResp {
-	apiBaseURL := m.ctx.GetConfig().External.APIBaseURL
+// apiBaseURL 由调用方按当前请求推出，避免 External.APIBaseURL 把图片/视频 URL 锁死在单一域名。
+func (m *Moments) getMomentResp(apiBaseURL string, loginUID string, model *model, likeResps []*likeResp, commentResps []*commentResp) *momentResp {
 
 	imgs := make([]string, 0)
 	if model.Imgs != "" {

@@ -1710,9 +1710,10 @@ func (g *Group) groupQRCode(c *wkhttp.Context) {
 		c.ResponseError(errors.New("设置缓存失败！"))
 		return
 	}
+	qrBase := wkutil.RequestOrExternalBaseURL(c.Request, g.ctx.GetConfig().External.BaseURL)
 	c.Response(gin.H{
 		"day":    7,
-		"qrcode": wkutil.FullBaseURL(g.ctx.GetConfig().External.BaseURL, strings.ReplaceAll(g.ctx.GetConfig().QRCodeInfoURL, ":code", uuid)),
+		"qrcode": wkutil.FullBaseURL(qrBase, strings.ReplaceAll(g.ctx.GetConfig().QRCodeInfoURL, ":code", uuid)),
 		"expire": time.Now().Add(time.Hour * 24 * 7).Format("01月02日"),
 	})
 

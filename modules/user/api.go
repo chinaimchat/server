@@ -821,7 +821,8 @@ func (u *User) qrcodeMy(c *wkhttp.Context) {
 		return
 	}
 	path := strings.ReplaceAll(u.ctx.GetConfig().QRCodeInfoURL, ":code", fmt.Sprintf("vercode_%s", userModel.QRVercode))
-	data := wkutil.FullBaseURL(u.ctx.GetConfig().External.BaseURL, path)
+	qrBase := wkutil.RequestOrExternalBaseURL(c.Request, u.ctx.GetConfig().External.BaseURL)
+	data := wkutil.FullBaseURL(qrBase, path)
 	c.Response(gin.H{
 		"data": data,
 	})
@@ -1781,9 +1782,10 @@ func (u *User) getLoginUUID(c *wkhttp.Context) {
 			return
 		}
 	}
+	qrBase := wkutil.RequestOrExternalBaseURL(c.Request, u.ctx.GetConfig().External.BaseURL)
 	c.JSON(http.StatusOK, gin.H{
 		"uuid":   uuid,
-		"qrcode": wkutil.FullBaseURL(u.ctx.GetConfig().External.BaseURL, strings.ReplaceAll(u.ctx.GetConfig().QRCodeInfoURL, ":code", uuid)),
+		"qrcode": wkutil.FullBaseURL(qrBase, strings.ReplaceAll(u.ctx.GetConfig().QRCodeInfoURL, ":code", uuid)),
 	})
 }
 

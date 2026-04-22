@@ -184,7 +184,7 @@ func (cn *Common) getPCNewVersion(c *wkhttp.Context) {
 		c.Status(http.StatusNoContent)
 		return
 	}
-	downloadURL := wkutil.FullAPIURL(cn.ctx.GetConfig().External.APIBaseURL, model.DownloadURL)
+	downloadURL := wkutil.FullAPIURL(wkutil.RequestOrExternalAPIBaseURL(c.Request, cn.ctx.GetConfig().External.APIBaseURL), model.DownloadURL)
 	c.JSON(http.StatusOK, gin.H{
 		"version":      model.AppVersion,
 		"path":         downloadURL,

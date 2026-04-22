@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -226,6 +227,39 @@ func bugResponseLogger() gin.HandlerFunc {
 
 func replaceWebConfig(cfg *config.Config) {
 	path := "./assets/web/js/config.js"
-	newConfigContent := fmt.Sprintf(`const apiURL = "%s/"`, cfg.External.APIBaseURL)
+	apiURL := strings.TrimSpace(cfg.External.APIBaseURL)
+	if apiURL != "" && !strings.HasSuffix(apiURL, "/") {
+		apiURL += "/"
+	}
+
+	apiURLList := parseAPIURLList(os.Getenv("TS_EXTERNAL_API_URLS"))
+	if len(apiURLList) == 0 && apiURL != "" {
+		apiURLList = []string{apiURL}
+	}
+	apiURLListJSON, _ := json.Marshal(apiURLList)
+
+	newConfigContent := fmt.Sprintf("const apiURL = %q;\nconst apiURLS = %s;\nwindow.TSDD_API_URL = apiURL;\nwindow.TSDD_API_URLS = apiURLS;\n", apiURL, string(apiURLListJSON))
 	_ = os.WriteFile(path, []byte(newConfigContent), 0644)
+}
+
+func parseAPIURLList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	items := strings.Split(raw, ",")
+	results := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		value = strings.TrimRight(value, "/") + "/"
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		results = append(results, value)
+	}
+	return results
 }

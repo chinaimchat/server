@@ -1088,9 +1088,10 @@ func (m *Manager) rechargeChannelGet(c *wkhttp.Context) {
 	}
 	ch := list[0]
 	cfg := m.ctx.GetConfig()
+	apiBase := wkutil.RequestOrExternalAPIBaseURL(c.Request, cfg.External.APIBaseURL)
 	qrImageFull := ""
 	if p := strings.TrimSpace(ch.QrImageURL); p != "" {
-		qrImageFull = wkutil.FullAPIURLForFilePreview(cfg.External.APIBaseURL, p, cfg.Minio.UploadURL, cfg.Minio.DownloadURL)
+		qrImageFull = wkutil.FullAPIURLForFilePreview(apiBase, p, cfg.Minio.UploadURL, cfg.Minio.DownloadURL)
 	}
 	c.Response(map[string]interface{}{
 		"id":                   ch.ID,
@@ -2167,7 +2168,7 @@ func (m *Manager) uploadImage(c *wkhttp.Context) {
 	}
 
 	relativePath := fmt.Sprintf("file/preview/common%s", storagePath)
-	absoluteURL := wkutil.FullAPIURL(m.ctx.GetConfig().External.APIBaseURL, relativePath)
+	absoluteURL := wkutil.FullAPIURL(wkutil.RequestOrExternalAPIBaseURL(c.Request, m.ctx.GetConfig().External.APIBaseURL), relativePath)
 	c.JSON(http.StatusOK, map[string]string{
 		"path": relativePath,
 		"url":  absoluteURL,
