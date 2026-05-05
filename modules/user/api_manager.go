@@ -287,12 +287,28 @@ func issueWebLoginToken(ctx *config.Context, userInfo *Model) (*loginUserDetailR
 		return nil, errors.New("设置uidtoken缓存失败！")
 	}
 
-	imResp, err := ctx.UpdateIMToken(config.UpdateIMTokenReq{
-		UID:         userInfo.UID,
-		Token:       token,
-		DeviceFlag:  config.DeviceFlag(flag),
-		DeviceLevel: deviceLevel,
-	})
+	var imResp *config.UpdateIMTokenResp
+	backoffs := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond, 1 * time.Second}
+	for i, wait := range backoffs {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		imResp, err = ctx.UpdateIMToken(config.UpdateIMTokenReq{
+			UID:         userInfo.UID,
+			Token:       token,
+			DeviceFlag:  config.DeviceFlag(flag),
+			DeviceLevel: deviceLevel,
+		})
+		if err == nil {
+			if i > 0 {
+				log.Warn("【manager】UpdateIMToken 重试恢复", zap.String("uid", userInfo.UID), zap.Int("attempt", i+1))
+			}
+			break
+		}
+		if i < len(backoffs)-1 {
+			log.Warn("【manager】UpdateIMToken 重试中", zap.Error(err), zap.String("uid", userInfo.UID), zap.Int("attempt", i+1))
+		}
+	}
 	if err != nil {
 		return nil, errors.New("更新IM的token失败！")
 	}

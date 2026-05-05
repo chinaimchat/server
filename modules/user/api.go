@@ -139,7 +139,7 @@ func (u *User) Route(r *wkhttp.WKHttp) {
 	{
 
 		auth.GET("/users/:uid/im", u.userIM) // 获取当前登录用户 IM 节点（需鉴权；拉路由前同步 token 到悟空）
-		auth.GET("/users/:uid", u.get) // 根据uid查询用户信息
+		auth.GET("/users/:uid", u.get)       // 根据uid查询用户信息
 		auth.GET("/invite", u.myInviteCode)
 		// 获取用户的会话信息
 		// auth.GET("/users/:uid/conversation", u.userConversationInfoGet)
@@ -349,33 +349,33 @@ func (u *User) getRedDot(c *wkhttp.Context) {
 
 // updateSystemUserToken 更新系统账号token
 func (u *User) updateSystemUserToken() {
-	_, err := u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	_, err := u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         u.ctx.GetConfig().Account.SystemUID,
 		DeviceFlag:  config.APP,
 		DeviceLevel: config.DeviceLevelMaster,
 		Token:       util.GenerUUID(),
-	})
+	}, "system-user")
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 	}
 
-	_, err = u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	_, err = u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         u.ctx.GetConfig().Account.FileHelperUID,
 		DeviceFlag:  config.APP,
 		DeviceLevel: config.DeviceLevelMaster,
 		Token:       util.GenerUUID(),
-	})
+	}, "system-filehelper")
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 	}
 
 	// 系统管理员
-	_, err = u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	_, err = u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         u.ctx.GetConfig().Account.AdminUID,
 		DeviceFlag:  config.APP,
 		DeviceLevel: config.DeviceLevelMaster,
 		Token:       util.GenerUUID(),
-	})
+	}, "system-admin")
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 	}
@@ -727,6 +727,82 @@ func readRequestAPIToken(c *wkhttp.Context) string {
 	return token
 }
 
+// resolveIMSyncDeviceFlags 解析当前请求应同步到 IM 的设备标记。
+// 先按 uid+token 在缓存中的映射精确匹配；匹配不到时再按 UA 兜底，避免把三端 token 全覆盖成同一个值。
+func (u *User) resolveIMSyncDeviceFlags(uid, token, ua string) []config.DeviceFlag {
+	prefix := u.ctx.GetConfig().Cache.UIDTokenCachePrefix
+	token = strings.TrimSpace(token)
+	if strings.TrimSpace(uid) == "" || token == "" || strings.TrimSpace(prefix) == "" {
+		return []config.DeviceFlag{config.APP}
+	}
+	candidates := []config.DeviceFlag{config.APP, config.Web, config.PC}
+	matched := make([]config.DeviceFlag, 0, 2)
+	for _, df := range candidates {
+		cacheToken, err := u.ctx.Cache().Get(fmt.Sprintf("%s%d%s", prefix, df, uid))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(cacheToken) == token {
+			matched = append(matched, df)
+		}
+	}
+	if len(matched) > 0 {
+		return matched
+	}
+	uaLower := strings.ToLower(strings.TrimSpace(ua))
+	switch {
+	case strings.Contains(uaLower, "okhttp"), strings.Contains(uaLower, "cfnetwork"), strings.Contains(uaLower, "tangsengdaodao"), strings.Contains(uaLower, "android"), strings.Contains(uaLower, "iphone"), strings.Contains(uaLower, "ipad"):
+		return []config.DeviceFlag{config.APP}
+	case strings.Contains(uaLower, "electron"), strings.Contains(uaLower, "windows"), strings.Contains(uaLower, "macintosh"):
+		return []config.DeviceFlag{config.PC, config.Web}
+	default:
+		return []config.DeviceFlag{config.Web}
+	}
+}
+
+func shortIMTraceID(uid, token string) string {
+	uid = strings.TrimSpace(uid)
+	token = strings.TrimSpace(token)
+	uidTail := uid
+	if len(uidTail) > 4 {
+		uidTail = uidTail[len(uidTail)-4:]
+	}
+	sum := crc32.ChecksumIEEE([]byte(uid + "|" + token))
+	return fmt.Sprintf("u%s-%08x", uidTail, sum)
+}
+
+// updateIMTokenWithRetry 对瞬时 IM 写入超时做短重试（200ms/500ms/1s）。
+func (u *User) updateIMTokenWithRetry(req config.UpdateIMTokenReq, traceID string) (*config.UpdateIMTokenResp, error) {
+	backoffs := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond, 1 * time.Second}
+	var lastErr error
+	for i, wait := range backoffs {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		resp, err := u.ctx.UpdateIMToken(req)
+		if err == nil {
+			if i > 0 {
+				u.Warn("UpdateIMToken retry recovered",
+					zap.String("uid", req.UID),
+					zap.Uint8("device_flag", uint8(req.DeviceFlag)),
+					zap.Int("attempt", i+1),
+					zap.String("trace_id", traceID))
+			}
+			return resp, nil
+		}
+		lastErr = err
+		if i < len(backoffs)-1 {
+			u.Warn("UpdateIMToken retrying",
+				zap.Error(err),
+				zap.String("uid", req.UID),
+				zap.Uint8("device_flag", uint8(req.DeviceFlag)),
+				zap.Int("attempt", i+1),
+				zap.String("trace_id", traceID))
+		}
+	}
+	return nil, lastErr
+}
+
 // 获取用户的IM连接地址
 func (u *User) userIM(c *wkhttp.Context) {
 	uid := c.Param("uid")
@@ -745,11 +821,13 @@ func (u *User) userIM(c *wkhttp.Context) {
 		return
 	}
 	sessionToken := readRequestAPIToken(c)
+	traceID := shortIMTraceID(uid, sessionToken)
 	if strings.TrimSpace(sessionToken) == "" {
 		u.Warn("【IM路由】拒绝：未解析到会话 token（请检查 Header 是否带 token）",
 			zap.String("uid", uid),
 			zap.String("client_ip", c.ClientIP()),
-			zap.String("ua", ua))
+			zap.String("ua", ua),
+			zap.String("trace_id", traceID))
 		c.ResponseError(errors.New("token无效"))
 		return
 	}
@@ -757,17 +835,19 @@ func (u *User) userIM(c *wkhttp.Context) {
 		zap.String("uid", uid),
 		zap.String("client_ip", c.ClientIP()),
 		zap.String("ua", ua),
-		zap.Int("token_len", len(sessionToken)))
-	// 悟空 IM 以「业务侧下发到 IM 的 token」校验长连接；若仅 HTTP 侧轮换/续期而未同步，会出现 expectToken≠actToken，全员表现为断连/连接失败。
-	for _, df := range []config.DeviceFlag{config.APP, config.Web, config.PC} {
-		imResp, err := u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+		zap.Int("token_len", len(sessionToken)),
+		zap.String("trace_id", traceID))
+	// 悟空 IM 以「业务侧下发到 IM 的 token」校验长连接。
+	// 只同步当前设备，避免不同端口令被同一次请求覆盖，导致其它端 expectToken≠actToken。
+	for _, df := range u.resolveIMSyncDeviceFlags(uid, sessionToken, ua) {
+		imResp, err := u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 			UID:         uid,
 			Token:       sessionToken,
 			DeviceFlag:  df,
 			DeviceLevel: config.DeviceLevelSlave,
-		})
+		}, traceID)
 		if err != nil {
-			u.Error("同步IM token失败", zap.Error(err), zap.String("uid", uid), zap.Uint8("device_flag", uint8(df)))
+			u.Error("同步IM token失败", zap.Error(err), zap.String("uid", uid), zap.Uint8("device_flag", uint8(df)), zap.String("trace_id", traceID))
 			c.ResponseError(errors.New("同步IM连接凭证失败，请稍后重试"))
 			return
 		}
@@ -779,14 +859,14 @@ func (u *User) userIM(c *wkhttp.Context) {
 
 	resp, err := network.Get(fmt.Sprintf("%s/route?uid=%s", u.ctx.GetConfig().WuKongIM.APIURL, uid), nil, nil)
 	if err != nil {
-		u.Error("调用IM服务失败！", zap.Error(err))
+		u.Error("调用IM服务失败！", zap.Error(err), zap.String("uid", uid), zap.String("trace_id", traceID))
 		c.ResponseError(errors.New("调用IM服务失败！"))
 		return
 	}
 	var resultMap map[string]interface{}
 	err = util.ReadJsonByByte([]byte(resp.Body), &resultMap)
 	if err != nil {
-		u.Error("【IM路由】解析悟空 route 响应失败", zap.Error(err), zap.String("uid", uid))
+		u.Error("【IM路由】解析悟空 route 响应失败", zap.Error(err), zap.String("uid", uid), zap.String("trace_id", traceID))
 		c.ResponseError(err)
 		return
 	}
@@ -799,10 +879,19 @@ func (u *User) userIM(c *wkhttp.Context) {
 	if len(wssPreview) > 80 {
 		wssPreview = wssPreview[:80] + "…"
 	}
+	// 兼容原生 App：部分运营商/CDN 链路下 wss://web.../ws 会 502。
+	// 某些老客户端若缺少 wss_addr 字段会一直重试，因此这里保留字段并回落到 ws_addr。
+	uaLower := strings.ToLower(ua)
+	if strings.Contains(uaLower, "okhttp") || strings.Contains(uaLower, "tangsengdaodao") || strings.Contains(uaLower, "cfnetwork") {
+		if wsAddr, ok := resultMap["ws_addr"].(string); ok && strings.TrimSpace(wsAddr) != "" {
+			resultMap["wss_addr"] = wsAddr
+		}
+	}
 	u.Info("【IM路由】成功：已同步 token 并返回悟空 route",
 		zap.String("uid", uid),
 		zap.Int("im_http_status", resp.StatusCode),
-		zap.String("addr_preview", wssPreview))
+		zap.String("addr_preview", wssPreview),
+		zap.String("trace_id", traceID))
 	c.JSON(resp.StatusCode, resultMap)
 }
 
@@ -1381,7 +1470,7 @@ func (u *User) execLogin(userInfo *Model, flag config.DeviceFlag, device *device
 		DeviceFlag:  config.DeviceFlag(flag),
 		DeviceLevel: deviceLevel,
 	}
-	imResp, err := u.ctx.UpdateIMToken(imTokenReq)
+	imResp, err := u.updateIMTokenWithRetry(imTokenReq, shortIMTraceID(userInfo.UID, token))
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 		updateTokenSpan.SetTag("err", err)
@@ -1390,19 +1479,19 @@ func (u *User) execLogin(userInfo *Model, flag config.DeviceFlag, device *device
 	}
 	if flag != config.APP {
 		// 与上面的缓存双写保持一致，确保 WEB/PC 任一标记下都能通过 IM token 校验。
-		_, err = u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+		_, err = u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 			UID:         userInfo.UID,
 			Token:       token,
 			DeviceFlag:  config.Web,
 			DeviceLevel: deviceLevel,
-		})
+		}, shortIMTraceID(userInfo.UID, token))
 		if err == nil {
-			_, err = u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+			_, err = u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 				UID:         userInfo.UID,
 				Token:       token,
 				DeviceFlag:  config.PC,
 				DeviceLevel: deviceLevel,
-			})
+			}, shortIMTraceID(userInfo.UID, token))
 		}
 		if err != nil {
 			u.Error("同步更新WEB/PC的IM token失败！", zap.Error(err))
@@ -1928,12 +2017,12 @@ func (u *User) loginWithAuthCode(c *wkhttp.Context) {
 			}
 		}
 	}
-	imResp, err := u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	imResp, err := u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         scaner,
 		Token:       token,
 		DeviceFlag:  flag,
 		DeviceLevel: config.DeviceLevelSlave,
-	})
+	}, shortIMTraceID(scaner, token))
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 		c.ResponseError(errors.New("更新IM的token失败！"))
@@ -2578,12 +2667,12 @@ func (u *User) loginCheckPhone(c *wkhttp.Context) {
 		return
 	}
 	// err = u.ctx.UpdateIMToken(userInfo.UID, token, config.DeviceFlag(0), config.DeviceLevelMaster)
-	imResp, err := u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	imResp, err := u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         userInfo.UID,
 		Token:       token,
 		DeviceFlag:  config.APP,
 		DeviceLevel: config.DeviceLevelMaster,
-	})
+	}, shortIMTraceID(userInfo.UID, token))
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 		c.ResponseError(errors.New("更新IM的token失败！"))
@@ -3132,12 +3221,12 @@ func (u *User) createUserWithRespAndTx(_ context.Context, createUser *createUser
 		u.Error("设置token缓存失败！", zap.Error(err))
 		return nil, err
 	}
-	_, err = u.ctx.UpdateIMToken(config.UpdateIMTokenReq{
+	_, err = u.updateIMTokenWithRetry(config.UpdateIMTokenReq{
 		UID:         createUser.UID,
 		Token:       token,
 		DeviceFlag:  config.DeviceFlag(createUser.Flag),
 		DeviceLevel: config.DeviceLevelSlave,
-	})
+	}, shortIMTraceID(createUser.UID, token))
 	if err != nil {
 		u.Error("更新IM的token失败！", zap.Error(err))
 		return nil, err

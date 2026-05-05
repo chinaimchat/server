@@ -2,11 +2,27 @@ package user
 
 import (
 	"context"
+	"fmt"
+	"hash/crc32"
 
 	"github.com/TangSengDaoDao/TangSengDaoDaoServerLib/config"
 	"github.com/TangSengDaoDao/TangSengDaoDaoServerLib/pkg/db"
 	"github.com/gocraft/dbr/v2"
 )
+
+const maxDeviceIDLen = 40
+
+func normalizeDeviceID(deviceID string) string {
+	if len(deviceID) <= maxDeviceIDLen {
+		return deviceID
+	}
+	sum := crc32.ChecksumIEEE([]byte(deviceID))
+	keep := maxDeviceIDLen - 9 // "-" + 8 hex chars
+	if keep < 1 {
+		keep = 1
+	}
+	return fmt.Sprintf("%s-%08x", deviceID[:keep], sum)
+}
 
 type deviceDB struct {
 	session *dbr.Session
@@ -22,7 +38,8 @@ func newDeviceDB(ctx *config.Context) *deviceDB {
 
 // 添加或更新设备
 func (d *deviceDB) insertOrUpdateDevice(m *deviceModel) error {
-	_, err := d.session.InsertBySql("insert into device(uid,device_id,device_name,device_model,last_login) values(?,?,?,?,?) ON DUPLICATE KEY UPDATE device_name=VALUES(device_name),device_model=VALUES(device_model),last_login=VALUES(last_login)", m.UID, m.DeviceID, m.DeviceName, m.DeviceModel, m.LastLogin).Exec()
+	deviceID := normalizeDeviceID(m.DeviceID)
+	_, err := d.session.InsertBySql("insert into device(uid,device_id,device_name,device_model,last_login) values(?,?,?,?,?) ON DUPLICATE KEY UPDATE device_name=VALUES(device_name),device_model=VALUES(device_model),last_login=VALUES(last_login)", m.UID, deviceID, m.DeviceName, m.DeviceModel, m.LastLogin).Exec()
 
 	return err
 }
@@ -34,7 +51,8 @@ func (d *deviceDB) insertOrUpdateDeviceCtx(ctx context.Context, m *deviceModel) 
 
 // 添加或更新设备
 func (d *deviceDB) insertOrUpdateDeviceTx(m *deviceModel, tx *dbr.Tx) error {
-	_, err := tx.InsertBySql("insert into device(uid,device_id,device_name,device_model,last_login) values(?,?,?,?,?) ON DUPLICATE KEY UPDATE device_name=VALUES(device_name),device_model=VALUES(device_model),last_login=VALUES(last_login)", m.UID, m.DeviceID, m.DeviceName, m.DeviceModel, m.LastLogin).Exec()
+	deviceID := normalizeDeviceID(m.DeviceID)
+	_, err := tx.InsertBySql("insert into device(uid,device_id,device_name,device_model,last_login) values(?,?,?,?,?) ON DUPLICATE KEY UPDATE device_name=VALUES(device_name),device_model=VALUES(device_model),last_login=VALUES(last_login)", m.UID, deviceID, m.DeviceName, m.DeviceModel, m.LastLogin).Exec()
 	return err
 }
 
@@ -62,14 +80,14 @@ func (d *deviceDB) queryDeviceWithUIDAndPage(uid string, pageIndex, pageSize int
 
 func (d *deviceDB) queryDeviceWithUIDAndDeviceID(deviceID, uid string) (*deviceModel, error) {
 	var device *deviceModel
-	_, err := d.session.Select("*").From("device").Where("uid=? and device_id=?", uid, deviceID).Load(&device)
+	_, err := d.session.Select("*").From("device").Where("uid=? and device_id=?", uid, normalizeDeviceID(deviceID)).Load(&device)
 	return device, err
 }
 
 // 是否存在指定用户的指定设备
 func (d *deviceDB) existDeviceWithDeviceIDAndUID(deviceID, uid string) (bool, error) {
 	var count int
-	_, err := d.session.Select("count(*)").From("device").Where("device_id=? and uid=?", deviceID, uid).Load(&count)
+	_, err := d.session.Select("count(*)").From("device").Where("device_id=? and uid=?", normalizeDeviceID(deviceID), uid).Load(&count)
 	return count > 0, err
 }
 
@@ -84,7 +102,7 @@ func (d *deviceDB) existDeviceWithDeviceIDAndUIDCtx(ctx context.Context, deviceI
 func (d *deviceDB) updateDeviceLastLogin(lastLogin int64, deviceID, uid string) error {
 	_, err := d.session.Update("device").SetMap(map[string]interface{}{
 		"last_login": lastLogin,
-	}).Where("device_id=? and uid=?", deviceID, uid).Exec()
+	}).Where("device_id=? and uid=?", normalizeDeviceID(deviceID), uid).Exec()
 	return err
 }
 
@@ -97,7 +115,7 @@ func (d *deviceDB) updateDeviceLastLoginCtx(ctx context.Context, lastLogin int64
 
 // 通过设备ID删除设备
 func (d *deviceDB) deleteDeviceWithDeviceIDAndUID(deviceID string, uid string) error {
-	_, err := d.session.DeleteFrom("device").Where("device_id=? and uid=?", deviceID, uid).Exec()
+	_, err := d.session.DeleteFrom("device").Where("device_id=? and uid=?", normalizeDeviceID(deviceID), uid).Exec()
 	return err
 }
 
