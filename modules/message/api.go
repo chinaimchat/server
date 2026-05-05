@@ -1127,6 +1127,10 @@ func (m *Message) mutualDelete(c *wkhttp.Context) {
 		ChannelType: req.ChannelType,
 		FromUID:     c.GetLoginUID(),
 		CMD:         common.CMDSyncMessageExtra,
+		Param: map[string]interface{}{
+			"channel_id":   req.ChannelID,
+			"channel_type": req.ChannelType,
+		},
 	})
 
 	if err != nil {
@@ -1221,6 +1225,10 @@ func (m *Message) mutualDeleteMessageByReq(req *deleteReq, loginUID string, forc
 		ChannelType: req.ChannelType,
 		FromUID:     loginUID,
 		CMD:         common.CMDSyncMessageExtra,
+		Param: map[string]interface{}{
+			"channel_id":   req.ChannelID,
+			"channel_type": req.ChannelType,
+		},
 	})
 	if err != nil {
 		return errors.New("发送cmd失败")
