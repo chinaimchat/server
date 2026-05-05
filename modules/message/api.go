@@ -87,25 +87,25 @@ func (m *Message) Route(r *wkhttp.WKHttp) {
 	message := r.Group("/v1/message", m.ctx.AuthMiddleware(r))
 	{
 
-		message.POST("/sync", m.sync)                             // 同步消息 (写模式才用到 TODO：此方法未来将弃用)
-		message.POST("/syncack/:last_message_seq", m.syncack)     // 同步消息回执 （写模式才用到 TODO：此方法未来将弃用）
-		message.DELETE("", m.delete)                              // 删除消息
-		message.POST("/delete", m.delete)                         // 删除消息（兼容 Web/代理对 DELETE body 的兼容问题）
-		message.DELETE("/mutual", m.mutualDelete)                 // 双向删除消息
-		message.POST("/revoke", m.revoke)                         // 撤回消息
-		message.POST("/offset", m.offset)                         // 清除某频道消息
-		message.PUT("/voicereaded", m.voiceReaded)                // 语音消息设置为已读
-		message.POST("/search", m.search)                         // 消息搜索
-		message.POST("/typing", m.typing)                         // 发送typing消息
-		message.POST("/channel/sync", m.syncChannelMessage)       // 同步频道消息
-		message.POST("/extra/sync", m.syncMessageExtra)           // 同步消息扩展
-		message.POST("/readed", m.messageReaded)                  // 消息已读
-		message.POST("/edit", m.messageEdit)                      // 消息编辑
-		message.POST("/reminder/sync", m.reminderSync)            // 同步提醒
-		message.POST("/reminder/done", m.reminderDone)            // 提醒已处理完成
-		message.POST("/pinned", m.pinnedMessage)                  // 置顶消息
-		message.POST("/pinned/sync", m.syncPinnedMessage)         // 同步置顶消息
-		message.POST("/pinned/clear", m.clearPinnedMessage)       // 删除所有置顶消息
+		message.POST("/sync", m.sync)                            // 同步消息 (写模式才用到 TODO：此方法未来将弃用)
+		message.POST("/syncack/:last_message_seq", m.syncack)    // 同步消息回执 （写模式才用到 TODO：此方法未来将弃用）
+		message.DELETE("", m.delete)                             // 删除消息
+		message.POST("/delete", m.delete)                        // 删除消息（兼容 Web/代理对 DELETE body 的兼容问题）
+		message.DELETE("/mutual", m.mutualDelete)                // 双向删除消息
+		message.POST("/revoke", m.revoke)                        // 撤回消息
+		message.POST("/offset", m.offset)                        // 清除某频道消息
+		message.PUT("/voicereaded", m.voiceReaded)               // 语音消息设置为已读
+		message.POST("/search", m.search)                        // 消息搜索
+		message.POST("/typing", m.typing)                        // 发送typing消息
+		message.POST("/channel/sync", m.syncChannelMessage)      // 同步频道消息
+		message.POST("/extra/sync", m.syncMessageExtra)          // 同步消息扩展
+		message.POST("/readed", m.messageReaded)                 // 消息已读
+		message.POST("/edit", m.messageEdit)                     // 消息编辑
+		message.POST("/reminder/sync", m.reminderSync)           // 同步提醒
+		message.POST("/reminder/done", m.reminderDone)           // 提醒已处理完成
+		message.POST("/pinned", m.pinnedMessage)                 // 置顶消息
+		message.POST("/pinned/sync", m.syncPinnedMessage)        // 同步置顶消息
+		message.POST("/pinned/clear", m.clearPinnedMessage)      // 删除所有置顶消息
 		message.GET("/prohibit_words/sync", m.prohibitWordsSync) // 客户端同步违禁词
 	}
 	messages := r.Group("/v1/messages", m.ctx.AuthMiddleware(r))
@@ -411,19 +411,6 @@ func (m *Message) messageReaded(c *wkhttp.Context) {
 		c.ResponseError(errors.New("没有读取到消息！"))
 		return
 	}
-	tx, err := m.ctx.DB().Begin()
-	if err != nil {
-		m.Error("开启事务失败！", zap.Error(err))
-		c.ResponseError(errors.New("开启事务失败！"))
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			tx.RollbackUnlessCommitted()
-			panic(err)
-		}
-	}()
-
 	// 构建批量插入的数据
 	readedModels := make([]*memberReadedModel, 0, len(syncMsg.Messages))
 	for _, message := range syncMsg.Messages {
@@ -434,17 +421,41 @@ func (m *Message) messageReaded(c *wkhttp.Context) {
 			UID:         loginUID,
 		})
 	}
-	// 批量插入或更新已读记录
-	err = m.memberReadedDB.batchInsertOrUpdateTx(readedModels, tx)
-	if err != nil {
-		tx.Rollback()
-		c.ResponseErrorf("添加已读数据失败！", err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		tx.Rollback()
-		c.ResponseErrorf("提交事务失败！", err)
-		return
+	const maxDeadlockRetries = 3
+	for attempt := 0; attempt < maxDeadlockRetries; attempt++ {
+		tx, err := m.ctx.DB().Begin()
+		if err != nil {
+			m.Error("开启事务失败！", zap.Error(err))
+			c.ResponseError(errors.New("开启事务失败！"))
+			return
+		}
+		err = m.memberReadedDB.batchInsertOrUpdateTx(readedModels, tx)
+		if err != nil {
+			_ = tx.Rollback()
+			if isMySQLDeadlock(err) && attempt < maxDeadlockRetries-1 {
+				m.Warn("member_readed 死锁，重试写入",
+					zap.Int("attempt", attempt+1),
+					zap.String("uid", loginUID),
+					zap.String("channel_id", fakeChannelID))
+				time.Sleep(time.Millisecond * time.Duration(15*(attempt+1)))
+				continue
+			}
+			c.ResponseErrorf("添加已读数据失败！", err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			_ = tx.Rollback()
+			if isMySQLDeadlock(err) && attempt < maxDeadlockRetries-1 {
+				m.Warn("member_readed 提交死锁，重试",
+					zap.Int("attempt", attempt+1),
+					zap.String("uid", loginUID))
+				time.Sleep(time.Millisecond * time.Duration(15*(attempt+1)))
+				continue
+			}
+			c.ResponseErrorf("提交事务失败！", err)
+			return
+		}
+		break
 	}
 	// 异步处理 Redis 缓存
 	go func() {
@@ -1725,7 +1736,6 @@ func (m *Message) revoke(c *wkhttp.Context) {
 
 }
 
-
 // // 接受IM的消息
 // func (m *Message) notify(c *wkhttp.Context) {
 // 	data, err := c.GetRawData()
@@ -2210,4 +2220,3 @@ type memberReceiptResp struct {
 	UID  string `json:"uid"`  // 成员uid
 	Name string `json:"name"` // 成员名称
 }
-

@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/TangSengDaoDao/TangSengDaoDaoServerLib/config"
@@ -26,6 +27,21 @@ func (m *memberReadedDB) batchInsertOrUpdateTx(models []*memberReadedModel, tx *
 	if len(models) == 0 {
 		return nil
 	}
+
+	// 与唯一索引 message_uid_idx(message_id, uid) 对齐，固定加锁顺序，降低并发 INSERT ... ON DUPLICATE KEY 死锁概率。
+	sort.SliceStable(models, func(i, j int) bool {
+		a, b := models[i], models[j]
+		if a.MessageID != b.MessageID {
+			return a.MessageID < b.MessageID
+		}
+		if a.UID != b.UID {
+			return a.UID < b.UID
+		}
+		if a.ChannelID != b.ChannelID {
+			return a.ChannelID < b.ChannelID
+		}
+		return a.ChannelType < b.ChannelType
+	})
 
 	// 构建批量插入的值和参数
 	valueStrings := make([]string, 0, len(models))

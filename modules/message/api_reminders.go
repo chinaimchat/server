@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/TangSengDaoDao/TangSengDaoDaoServer/modules/group"
@@ -26,43 +27,59 @@ func (m *Message) reminderDone(c *wkhttp.Context) {
 		c.ResponseError(errors.New("数据不能为空！"))
 		return
 	}
+	// 与 insertDonesTx 内排序一致：固定按 reminder 主键顺序更新 version，避免并发事务对 reminders 行加锁顺序不一致导致死锁。
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	loginUID := c.GetLoginUID()
-	tx, err := m.ctx.DB().Begin()
-	if err != nil {
-		m.Error("开启事务失败！", zap.Error(err))
-		c.ResponseError(errors.New("开启事务失败！"))
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			tx.RollbackUnlessCommitted()
-			panic(err)
-		}
-	}()
-	err = m.remindersDB.insertDonesTx(ids, loginUID, tx)
-	if err != nil {
-		tx.Rollback()
-		m.Error("添加done失败！", zap.Error(err))
-		c.ResponseError(errors.New("添加done失败！"))
-		return
-	}
-	for _, id := range ids {
-		version := m.ctx.GenSeq(common.RemindersKey)
-		err = m.remindersDB.updateVersionTx(version, id, tx)
+	const maxDeadlockRetries = 3
+retryDoneTx:
+	for attempt := 0; attempt < maxDeadlockRetries; attempt++ {
+		tx, err := m.ctx.DB().Begin()
 		if err != nil {
-			tx.Rollback()
-			m.Error("更新提醒项版本失败！", zap.Error(err))
-			c.ResponseError(errors.New("更新提醒项版本失败！"))
+			m.Error("开启事务失败！", zap.Error(err))
+			c.ResponseError(errors.New("开启事务失败！"))
 			return
 		}
+		err = m.remindersDB.insertDonesTx(ids, loginUID, tx)
+		if err != nil {
+			_ = tx.Rollback()
+			if isMySQLDeadlock(err) && attempt < maxDeadlockRetries-1 {
+				m.Warn("reminder_done 死锁，重试", zap.Int("attempt", attempt+1), zap.String("uid", loginUID))
+				time.Sleep(time.Millisecond * time.Duration(15*(attempt+1)))
+				continue retryDoneTx
+			}
+			m.Error("添加done失败！", zap.Error(err))
+			c.ResponseError(errors.New("添加done失败！"))
+			return
+		}
+		for _, id := range ids {
+			version := m.ctx.GenSeq(common.RemindersKey)
+			err = m.remindersDB.updateVersionTx(version, id, tx)
+			if err != nil {
+				_ = tx.Rollback()
+				if isMySQLDeadlock(err) && attempt < maxDeadlockRetries-1 {
+					m.Warn("reminders 更新版本死锁，重试", zap.Int("attempt", attempt+1), zap.String("uid", loginUID))
+					time.Sleep(time.Millisecond * time.Duration(15*(attempt+1)))
+					continue retryDoneTx
+				}
+				m.Error("更新提醒项版本失败！", zap.Error(err))
+				c.ResponseError(errors.New("更新提醒项版本失败！"))
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			_ = tx.Rollback()
+			if isMySQLDeadlock(err) && attempt < maxDeadlockRetries-1 {
+				m.Warn("reminder done 提交死锁，重试", zap.Int("attempt", attempt+1))
+				time.Sleep(time.Millisecond * time.Duration(15*(attempt+1)))
+				continue retryDoneTx
+			}
+			m.Error("提交事务失败！", zap.Error(err))
+			c.ResponseError(errors.New("提交事务失败！"))
+			return
+		}
+		break
 	}
-	if err := tx.Commit(); err != nil {
-		tx.RollbackUnlessCommitted()
-		m.Error("提交事务失败！", zap.Error(err))
-		c.ResponseError(errors.New("提交事务失败！"))
-		return
-	}
-	err = m.ctx.SendCMD(config.MsgCMDReq{
+	err := m.ctx.SendCMD(config.MsgCMDReq{
 		NoPersist:   true,
 		ChannelID:   loginUID,
 		ChannelType: common.ChannelTypePerson.Uint8(),
