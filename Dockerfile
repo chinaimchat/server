@@ -39,6 +39,10 @@ ADD go.mod .
 ADD go.sum .
 RUN go mod download
 
+# 依赖库 common.GetFakeChannelIDWith：自会话时 CRC32 必然相同，原 Warn 刷屏；构建期打补丁仅保留「不同 uid 碰撞」告警。
+COPY scripts/patch-tsddlib-common-msg.sh /tmp/patch-tsddlib-common-msg.sh
+RUN chmod +x /tmp/patch-tsddlib-common-msg.sh && bash /tmp/patch-tsddlib-common-msg.sh
+
 WORKDIR /go/release
 
 
