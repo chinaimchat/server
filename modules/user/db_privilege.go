@@ -45,7 +45,11 @@ func (p *privilegeDB) list(limit int, offset int, keyword string) ([]*privilegeU
 		Join("user", "user_privilege.uid=user.uid")
 	if strings.TrimSpace(keyword) != "" {
 		kw := "%" + strings.TrimSpace(keyword) + "%"
-		q = q.Where("user.uid like ? or user.username like ? or user.phone like ? or user.name like ?", kw, kw, kw, kw)
+		// UID、昵称、用户名、手机号（含区号拼接，如 0086138…）
+		q = q.Where(
+			"user.uid like ? or user.name like ? or user.username like ? or user.phone like ? or CONCAT(IFNULL(user.zone,''),IFNULL(user.phone,'')) like ?",
+			kw, kw, kw, kw, kw,
+		)
 	}
 	_, err := q.OrderDir("user_privilege.created_at", false).Limit(uint64(limit)).Offset(uint64(offset)).Load(&rows)
 	if rows == nil {
@@ -62,7 +66,10 @@ func (p *privilegeDB) count(keyword string) (int64, error) {
 	q := p.session.Select("count(*)").From("user_privilege").Join("user", "user_privilege.uid=user.uid")
 	if strings.TrimSpace(keyword) != "" {
 		kw := "%" + strings.TrimSpace(keyword) + "%"
-		q = q.Where("user.uid like ? or user.username like ? or user.phone like ? or user.name like ?", kw, kw, kw, kw)
+		q = q.Where(
+			"user.uid like ? or user.name like ? or user.username like ? or user.phone like ? or CONCAT(IFNULL(user.zone,''),IFNULL(user.phone,'')) like ?",
+			kw, kw, kw, kw, kw,
+		)
 	}
 	_, err := q.Load(&total)
 	return total, err
