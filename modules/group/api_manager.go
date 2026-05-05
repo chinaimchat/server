@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/TangSengDaoDao/TangSengDaoDaoServer/modules/base/event"
 	"github.com/TangSengDaoDao/TangSengDaoDaoServer/modules/user"
@@ -43,6 +44,7 @@ func (m *Manager) Route(r *wkhttp.WKHttp) {
 	auth := r.Group("/v1/manager", m.ctx.AuthMiddleware(r))
 	{
 		auth.GET("/group/list", m.list)                              // 群列表
+		auth.GET("/group/member_groups", m.memberGroups)           // 某用户所在群（管理端预览聊天记录）
 		auth.GET("/group/disablelist", m.disablelist)                // 封禁群列表
 		auth.PUT("/group/liftban/:groupNo/:status", m.leftbangroup)  // 封禁或解禁某个群
 		auth.PUT("/groups/:group_no/forbidden/:on", m.forbidden)     // 群全员禁言
@@ -515,6 +517,35 @@ func (m *Manager) blacklist(c *wkhttp.Context) {
 		"count": count,
 		"list":  m.from(list),
 	})
+}
+
+// memberGroups 查询某用户参与的所有群（用于管理端「以此用户视角」预览群聊记录）
+func (m *Manager) memberGroups(c *wkhttp.Context) {
+	err := c.CheckLoginRole()
+	if err != nil {
+		c.ResponseError(err)
+		return
+	}
+	uid := strings.TrimSpace(c.Query("uid"))
+	if uid == "" {
+		c.ResponseError(errors.New("uid不能为空"))
+		return
+	}
+	models, err := m.db.queryGroupsWithMemberUID(uid)
+	if err != nil {
+		m.Error("查询用户群列表失败", zap.Error(err), zap.String("uid", uid))
+		c.ResponseError(errors.New("查询用户群列表失败"))
+		return
+	}
+	list := make([]map[string]interface{}, 0, len(models))
+	for _, g := range models {
+		list = append(list, map[string]interface{}{
+			"group_no": g.GroupNo,
+			"name":     g.Name,
+			"status":   g.Status,
+		})
+	}
+	c.Response(list)
 }
 
 func (m *Manager) from(list []*managerMemberModel) []*managerMemberResp {

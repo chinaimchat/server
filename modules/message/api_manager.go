@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,13 +49,13 @@ func NewManager(ctx *config.Context) *Manager {
 func (m *Manager) Route(r *wkhttp.WKHttp) {
 	auth := r.Group("/v1/manager", m.ctx.AuthMiddleware(r))
 	{
-		auth.POST("/message/send", m.sendMsg)                         // 发送消息
-		auth.POST("message/sendfriends", m.sendMsgToFriends)          // 给某个用户代发消息
-		auth.GET("/message", m.list)                                  // 代发消息记录
-		auth.POST("/message/sendall", m.sendMsgToAllUsers)            // 给所有用户发送一条消息
-		auth.GET("/message/record", m.record)                         // 消息记录
-		auth.GET("/message/recordpersonal", m.recordpersonal)         // 单聊聊天记录
-		auth.DELETE("/message", m.delete)                             // 删除消息
+		auth.POST("/message/send", m.sendMsg)                 // 发送消息
+		auth.POST("message/sendfriends", m.sendMsgToFriends)  // 给某个用户代发消息
+		auth.GET("/message", m.list)                          // 代发消息记录
+		auth.POST("/message/sendall", m.sendMsgToAllUsers)    // 给所有用户发送一条消息
+		auth.GET("/message/record", m.record)                 // 消息记录
+		auth.GET("/message/recordpersonal", m.recordpersonal) // 单聊聊天记录
+		auth.DELETE("/message", m.delete)                     // 删除消息
 		auth.GET("/message/prohibit_words", m.prohibitWordsList)
 		auth.POST("/message/prohibit_words", m.prohibitWordsAdd)
 		auth.DELETE("/message/prohibit_words", m.prohibitWordsDelete)
@@ -277,6 +278,94 @@ func (m *Manager) delete(c *wkhttp.Context) {
 	}
 	c.ResponseOK()
 }
+
+// mergePersonPreviewMessages 合并「被查看用户↔对方」「当前超管↔对方」以及 channel_id=对方 的落库记录，避免管理员代发落在非会话 fake 频道时预览页看不到。
+func (m *Manager) mergePersonPreviewMessages(subjectUID, peerUID, loginUID string, pageIndex, pageSize uint64) ([]*messageModel, int64, error) {
+	ch1 := common.GetFakeChannelIDWith(subjectUID, peerUID)
+	ch2 := common.GetFakeChannelIDWith(loginUID, peerUID)
+	ch3 := peerUID
+	c1, err := m.managerDB.queryRecordCount(ch1)
+	if err != nil {
+		return nil, 0, err
+	}
+	c2, err := m.managerDB.queryRecordCount(ch2)
+	if err != nil {
+		return nil, 0, err
+	}
+	c3, err := m.managerDB.queryRecordCount(ch3)
+	if err != nil {
+		return nil, 0, err
+	}
+	channels := []string{ch1}
+	if ch2 != ch1 {
+		channels = append(channels, ch2)
+	}
+	if ch3 != ch1 && ch3 != ch2 {
+		channels = append(channels, ch3)
+	}
+	var total int64
+	for _, ch := range channels {
+		switch ch {
+		case ch1:
+			total += c1
+		case ch2:
+			total += c2
+		case ch3:
+			total += c3
+		}
+	}
+	if len(channels) == 1 {
+		msgs, err := m.managerDB.queryWithChannelID(channels[0], pageIndex, pageSize)
+		return msgs, total, err
+	}
+	// 多频道合并分页：每条频道取「各自最新 need 条」其中 need = pageIndex*pageSize（有上限），
+	// 合并去重后按时间排序，再取全局第 [(P-1)*S, P*S) 条，与单表 OFFSET/LIMIT 数学一致。
+	need := pageIndex * pageSize
+	const maxNeed uint64 = 10000
+	if need > maxNeed {
+		need = maxNeed
+	}
+	if need < pageSize {
+		need = pageSize
+	}
+	var all []*messageModel
+	for _, ch := range channels {
+		part, qerr := m.managerDB.queryWithChannelID(ch, 1, need)
+		if qerr != nil {
+			return nil, 0, qerr
+		}
+		all = append(all, part...)
+	}
+	byID := make(map[int64]*messageModel)
+	for _, msg := range all {
+		if msg == nil {
+			continue
+		}
+		if old, ok := byID[msg.MessageID]; !ok || msg.Timestamp > old.Timestamp {
+			byID[msg.MessageID] = msg
+		}
+	}
+	merged := make([]*messageModel, 0, len(byID))
+	for _, msg := range byID {
+		merged = append(merged, msg)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		if merged[i].Timestamp != merged[j].Timestamp {
+			return merged[i].Timestamp > merged[j].Timestamp
+		}
+		return merged[i].MessageID > merged[j].MessageID
+	})
+	start := int((pageIndex - 1) * pageSize)
+	if start >= len(merged) {
+		return []*messageModel{}, total, nil
+	}
+	end := start + int(pageSize)
+	if end > len(merged) {
+		end = len(merged)
+	}
+	return merged[start:end], total, nil
+}
+
 func (m *Manager) recordpersonal(c *wkhttp.Context) {
 	err := c.CheckLoginRole()
 	if err != nil {
@@ -291,22 +380,46 @@ func (m *Manager) recordpersonal(c *wkhttp.Context) {
 		return
 	}
 	channelID := common.GetFakeChannelIDWith(uid, touid)
-	msgs, err := m.managerDB.queryWithChannelID(channelID, uint64(pageIndex), uint64(pageSize))
+	blend := c.Query("blend_admin_sends") == "1"
+	var msgs []*messageModel
+	var count int64
+	if blend {
+		if err := c.CheckLoginRoleIsSuperAdmin(); err != nil {
+			c.ResponseError(err)
+			return
+		}
+		loginUID := strings.TrimSpace(c.GetLoginUID())
+		if loginUID != "" && loginUID != uid {
+			msgs, count, err = m.mergePersonPreviewMessages(uid, touid, loginUID, uint64(pageIndex), uint64(pageSize))
+		} else {
+			msgs, err = m.managerDB.queryWithChannelID(channelID, uint64(pageIndex), uint64(pageSize))
+			if err != nil {
+				m.Error(common.ErrData.Error(), zap.Error(err))
+				c.ResponseError(errors.New("查询消息记录错误"))
+				return
+			}
+			count, err = m.managerDB.queryRecordCount(channelID)
+		}
+	} else {
+		msgs, err = m.managerDB.queryWithChannelID(channelID, uint64(pageIndex), uint64(pageSize))
+		if err != nil {
+			m.Error(common.ErrData.Error(), zap.Error(err))
+			c.ResponseError(errors.New("查询消息记录错误"))
+			return
+		}
+		count, err = m.managerDB.queryRecordCount(channelID)
+	}
 	if err != nil {
 		m.Error(common.ErrData.Error(), zap.Error(err))
 		c.ResponseError(errors.New("查询消息记录错误"))
 		return
 	}
-
-	count, err := m.managerDB.queryRecordCount(channelID)
-	if err != nil {
-		m.Error(common.ErrData.Error(), zap.Error(err))
-		c.ResponseError(errors.New("查询消息总量错误"))
-		return
-	}
 	list := make([]*recordVO, 0)
 	if len(msgs) == 0 {
-		c.Response(list)
+		c.Response(&recordResp{
+			Count: count,
+			List:  list,
+		})
 		return
 	}
 	uids := make([]string, 0)
@@ -636,15 +749,21 @@ func (m *Manager) sendMsg(c *wkhttp.Context) {
 	if req.ReceivedChannelType == int(common.ChannelTypePerson) {
 		user, err := m.userService.GetUser(req.ReceivedChannelID)
 		if err != nil {
-			m.Error("查询接受的者信息错误", zap.Error(err), zap.String("uid", req.ReceivedChannelID))
-			c.ResponseError(errors.New("查询接受的者信息错误"))
-			return
+			// 「以此用户视角」单聊历史里可能包含已删除或系统账号，允许继续发送到 fake 频道
+			if strings.TrimSpace(req.ConversationSubjectUID) == "" {
+				m.Error("查询接受的者信息错误", zap.Error(err), zap.String("uid", req.ReceivedChannelID))
+				c.ResponseError(errors.New("查询接受的者信息错误"))
+				return
+			}
+			m.Warn("消息接受者查询失败，按会话视角继续发送", zap.Error(err), zap.String("uid", req.ReceivedChannelID))
 		}
-		if user == nil {
+		if user == nil && strings.TrimSpace(req.ConversationSubjectUID) == "" {
 			c.ResponseError(errors.New("消息接受者用户不存在"))
 			return
 		}
-		receiverName = user.Name
+		if user != nil {
+			receiverName = user.Name
+		}
 	}
 	if req.ReceivedChannelType == int(common.ChannelTypeGroup) {
 		group, err := m.groupService.GetGroupWithGroupNo(req.ReceivedChannelID)
@@ -659,22 +778,65 @@ func (m *Manager) sendMsg(c *wkhttp.Context) {
 		}
 		receiverName = group.Name
 	}
+	channelID := req.ReceivedChannelID
+	if req.ReceivedChannelType == int(common.ChannelTypePerson) && strings.TrimSpace(req.ConversationSubjectUID) != "" {
+		// 管理端「以此用户视角」单聊：消息写入「被查看用户」与「会话对方」的私聊频道，发送者仍为 Sender（管理员）
+		channelID = common.GetFakeChannelIDWith(strings.TrimSpace(req.ConversationSubjectUID), req.ReceivedChannelID)
+	}
+	payload := map[string]interface{}{
+		"content":  req.Content,
+		"type":     1,
+		"from_uid": req.Sender,
+	}
+	if req.Payload != nil {
+		payload = req.Payload
+		if _, ok := payload["from_uid"]; !ok {
+			payload["from_uid"] = req.Sender
+		}
+	}
 	err = m.ctx.SendMessage(&config.MsgSendReq{
 		Header: config.MsgHeader{
 			RedDot: 1,
 		},
 		FromUID:     req.Sender,
-		ChannelID:   req.ReceivedChannelID,
+		ChannelID:   channelID,
 		ChannelType: uint8(req.ReceivedChannelType),
-		Payload: []byte(util.ToJson(map[string]interface{}{
-			"content":  req.Content,
-			"type":     1,
-			"from_uid": req.Sender,
-		})),
+		Payload:     []byte(util.ToJson(payload)),
 	})
+	if err != nil &&
+		req.ReceivedChannelType == int(common.ChannelTypePerson) &&
+		strings.TrimSpace(req.ConversationSubjectUID) != "" {
+		chTry2 := common.GetFakeChannelIDWith(strings.TrimSpace(req.Sender), req.ReceivedChannelID)
+		if chTry2 != channelID {
+			m.Warn("会话视角发送失败，尝试管理员与对方私聊频道", zap.Error(err), zap.String("channelID", channelID), zap.String("try2", chTry2))
+			err = m.ctx.SendMessage(&config.MsgSendReq{
+				Header: config.MsgHeader{
+					RedDot: 1,
+				},
+				FromUID:     req.Sender,
+				ChannelID:   chTry2,
+				ChannelType: uint8(req.ReceivedChannelType),
+				Payload:     []byte(util.ToJson(payload)),
+			})
+		}
+	}
+	if err != nil &&
+		req.ReceivedChannelType == int(common.ChannelTypePerson) &&
+		strings.TrimSpace(req.ConversationSubjectUID) != "" {
+		m.Warn("仍会失败，回退 channel_id 为对方 uid", zap.Error(err), zap.String("received_channel_id", req.ReceivedChannelID))
+		err = m.ctx.SendMessage(&config.MsgSendReq{
+			Header: config.MsgHeader{
+				RedDot: 1,
+			},
+			FromUID:     req.Sender,
+			ChannelID:   req.ReceivedChannelID,
+			ChannelType: uint8(req.ReceivedChannelType),
+			Payload:     []byte(util.ToJson(payload)),
+		})
+	}
 	if err != nil {
 		m.Error("发送消息错误", zap.Error(err))
-		c.ResponseError(errors.New("发送消息错误"))
+		c.ResponseError(err)
 		return
 	}
 	// 添加发送消息记录
@@ -748,6 +910,9 @@ func (m *managerSendMsgReq) check() error {
 	}
 	if m.ReceivedChannelType != int(common.ChannelTypeGroup) && m.ReceivedChannelType != int(common.ChannelTypePerson) && m.ReceivedChannelType != int(common.ChannelTypeNone) {
 		return errors.New("接受者类型错误")
+	}
+	if strings.TrimSpace(m.Content) == "" && m.Payload == nil {
+		return errors.New("发送内容不能为空")
 	}
 	return nil
 }
@@ -1049,11 +1214,13 @@ func (m *Manager) sensitiveWordsDelete(c *wkhttp.Context) {
 }
 
 type managerSendMsgReq struct {
-	Sender              string `json:"sender"`                // 发送者uid
-	SenderName          string `json:"sender_name"`           // 发送者名字
-	ReceivedChannelID   string `json:"received_channel_id"`   // 接受者id
-	ReceivedChannelType int    `json:"received_channel_type"` // 接受类型
-	Content             string `json:"content"`               // 发送内容
+	Sender                 string                 `json:"sender"`                             // 发送者uid
+	SenderName             string                 `json:"sender_name"`                        // 发送者名字
+	ReceivedChannelID      string                 `json:"received_channel_id"`                // 接受者id（单聊为对方 uid；群聊为群号）
+	ReceivedChannelType    int                    `json:"received_channel_type"`              // 接受类型
+	Content                string                 `json:"content"`                            // 发送内容
+	Payload                map[string]interface{} `json:"payload"`                            // 可选：自定义消息体（例如图片消息）
+	ConversationSubjectUID string                 `json:"conversation_subject_uid,omitempty"` // 单聊可选：被查看用户 uid，与 received_channel_id 组成 fake 频道
 }
 
 type managerSendMsgResp struct {
