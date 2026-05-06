@@ -1265,6 +1265,44 @@ func (m *Message) delete(c *wkhttp.Context) {
 			c.ResponseError(errors.New("查询特权双删开关失败"))
 			return
 		}
+		// 群聊删除策略：
+		// 1) 删除自己的消息：仅本地删除；
+		// 2) 群主/管理员/特权号删除他人消息：走互删（全员消失）。
+		if req.ChannelType == common.ChannelTypeGroup.Uint8() {
+			resp, err := m.ctx.IMGetWithChannelAndSeqs(req.ChannelID, req.ChannelType, loginUID, []uint32{req.MessageSeq})
+			if err != nil {
+				m.Error("查询消息错误", zap.Error(err), zap.String("uid", loginUID), zap.String("channelID", req.ChannelID), zap.Uint8("channelType", req.ChannelType), zap.Uint32("messageSeq", req.MessageSeq))
+				c.ResponseError(errors.New("查询消息错误"))
+				return
+			}
+			if resp == nil || len(resp.Messages) == 0 {
+				c.ResponseError(errors.New("消息不存在"))
+				return
+			}
+			targetMsg := resp.Messages[0]
+			if strings.TrimSpace(req.MessageID) == "" {
+				req.MessageID = strconv.FormatInt(targetMsg.MessageID, 10)
+			}
+
+			isManager, err := m.groupService.IsCreatorOrManager(req.ChannelID, loginUID)
+			if err != nil {
+				m.Error("查询登录用户群内权限错误", zap.Error(err), zap.String("uid", loginUID), zap.String("channelID", req.ChannelID))
+				c.ResponseError(errors.New("查询登录用户群内权限错误"))
+				return
+			}
+			canDeleteOthers := isManager || enabled
+			if targetMsg.FromUID != loginUID && !canDeleteOthers {
+				c.ResponseError(errors.New("用户无权删除此消息"))
+				return
+			}
+			if targetMsg.FromUID != loginUID && canDeleteOthers {
+				mutualDeleteReqs = append(mutualDeleteReqs, req)
+			} else {
+				localDeleteReqs = append(localDeleteReqs, req)
+			}
+			continue
+		}
+
 		if enabled {
 			mutualDeleteReqs = append(mutualDeleteReqs, req)
 		} else {
