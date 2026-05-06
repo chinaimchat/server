@@ -343,6 +343,10 @@ func (co *Conversation) syncUserConversation(c *wkhttp.Context) {
 	channelIDs := make([]string, 0, len(conversations))
 	if len(conversations) > 0 {
 		for _, conversation := range conversations {
+			if conversation == nil {
+				co.Warn("同步最近会话返回空会话项，已跳过", zap.String("uid", loginUID))
+				continue
+			}
 			if len(conversation.Recents) == 0 {
 				continue
 			}
@@ -453,6 +457,9 @@ func (co *Conversation) syncUserConversation(c *wkhttp.Context) {
 	userKey := loginUID
 	if len(conversations) > 0 {
 		for _, conversation := range conversations {
+			if conversation == nil {
+				continue
+			}
 
 			if conversation.ChannelType == common.ChannelTypeGroup.Uint8() {
 				vaild := false
@@ -530,9 +537,8 @@ func (co *Conversation) syncUserConversation(c *wkhttp.Context) {
 	// 加入的群聊
 	joinedGroups, err := co.groupService.GetGroupsWithMemberUID(loginUID)
 	if err != nil {
-		co.Error("查询加入的群聊错误", zap.Error(err))
-		c.ResponseError(errors.New("查询加入的群聊错误"))
-		return
+		co.Warn("查询加入的群聊错误，跳过通话状态群频道计算", zap.Error(err), zap.String("uid", loginUID))
+		joinedGroups = nil
 	}
 	callChannelIDs := make([]string, 0)
 	if len(joinedGroups) > 0 {
@@ -543,9 +549,8 @@ func (co *Conversation) syncUserConversation(c *wkhttp.Context) {
 	// 好友
 	friends, err := co.userService.GetFriends(loginUID)
 	if err != nil {
-		co.Error("查询好友错误", zap.Error(err))
-		c.ResponseError(errors.New("查询好友错误"))
-		return
+		co.Warn("查询好友错误，跳过通话状态好友频道计算", zap.Error(err), zap.String("uid", loginUID))
+		friends = nil
 	}
 	if len(friends) > 0 {
 		for _, f := range friends {

@@ -113,10 +113,15 @@ func (m *Message) reminderSync(c *wkhttp.Context) {
 		return
 	}
 
+	groupIDSet := make(map[string]struct{})
 	groupIds := make([]string, 0)
 	if len(reminders) > 0 {
 		for _, reminder := range reminders {
-			if reminder.ChannelType == common.ChannelTypeGroup.Uint8() {
+			if reminder.ChannelType == common.ChannelTypeGroup.Uint8() && reminder.ChannelID != "" {
+				if _, ok := groupIDSet[reminder.ChannelID]; ok {
+					continue
+				}
+				groupIDSet[reminder.ChannelID] = struct{}{}
 				groupIds = append(groupIds, reminder.ChannelID)
 			}
 		}
@@ -125,7 +130,7 @@ func (m *Message) reminderSync(c *wkhttp.Context) {
 	if len(groupIds) > 0 {
 		members, err = m.groupService.GetMembersWithUIDAndGroupIds(loginUID, groupIds)
 		if err != nil {
-			m.Error("查询登录用户加入群成员信息错误", zap.Error(err))
+			m.Error("查询登录用户加入群成员信息错误", zap.Error(err), zap.String("uid", loginUID), zap.Int("group_count", len(groupIds)))
 			c.ResponseError(errors.New("查询登录用户加入群成员信息错误"))
 			return
 		}
