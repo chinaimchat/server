@@ -2827,9 +2827,13 @@ func (g *Group) forbiddenTimesList(c *wkhttp.Context) {
 // 禁言某个群成员
 func (g *Group) forbiddenWithGroupMember(c *wkhttp.Context) {
 	type forbiddenWithGroupMemberReq struct {
-		MemberUID string `json:"member_uid"`
-		Action    int    `json:"action"` // 0.解禁1.禁言
-		Key       int    `json:"key"`
+		MemberUID            string `json:"member_uid"`
+		Action               int    `json:"action"` // 0.解禁1.禁言
+		Key                  int    `json:"key"`
+		ForbiddenExpirTime   int64  `json:"forbidden_expir_time"`   // 兼容部分客户端：传禁言秒数或绝对过期时间
+		ForbiddenExpireTime  int64  `json:"forbidden_expire_time"`  // 兼容字段名
+		ForbiddenExpireAt    int64  `json:"forbidden_expire_at"`    // 兼容字段名
+		ForbiddenExpireStamp int64  `json:"forbidden_expire_stamp"` // 兼容字段名
 	}
 	var req forbiddenWithGroupMemberReq
 	if err := c.BindJSON(&req); err != nil {
@@ -2867,6 +2871,16 @@ func (g *Group) forbiddenWithGroupMember(c *wkhttp.Context) {
 		c.ResponseError(errors.New("登录用户不在本群内无法操作"))
 		return
 	}
+	loginRole := loginGroupMember.Role
+	if loginRole == MemberRoleCommon {
+		privilegeManagerOn, pErr := g.isPrivilegeGroupManagerEnabled(loginUID)
+		if pErr != nil {
+			g.Warn("查询特权群管理开关失败", zap.Error(pErr), zap.String("uid", loginUID))
+		} else if privilegeManagerOn {
+			// 特权账号在群管理场景按管理员权限处理，和成员同步接口保持一致。
+			loginRole = MemberRoleManager
+		}
+	}
 	member, err := g.db.QueryMemberWithUID(req.MemberUID, group.GroupNo)
 	if err != nil {
 		g.Error("查询成员信息错误", zap.Error(err))
@@ -2877,7 +2891,7 @@ func (g *Group) forbiddenWithGroupMember(c *wkhttp.Context) {
 		c.ResponseError(errors.New("该成员不在群内"))
 		return
 	}
-	if loginGroupMember.Role == MemberRoleCommon || member.Role == MemberRoleCreator || loginGroupMember.Role == member.Role {
+	if loginRole == MemberRoleCommon || member.Role == MemberRoleCreator || loginRole == member.Role {
 		c.ResponseError(errors.New("操作用户权限不够"))
 		return
 	}
@@ -2892,22 +2906,42 @@ func (g *Group) forbiddenWithGroupMember(c *wkhttp.Context) {
 			return
 		}
 	} else {
-		expirationTime := time.Now().Unix()
+		now := time.Now().Unix()
+		expirationTime := int64(0)
 		switch req.Key {
 		case 1:
-			expirationTime += 60
+			expirationTime = now + 60
 		case 2:
-			expirationTime += 60 * 10
+			expirationTime = now + 60*10
 		case 3:
-			expirationTime += 60 * 60
+			expirationTime = now + 60*60
 		case 4:
-			expirationTime += 60 * 60 * 24
+			expirationTime = now + 60*60*24
 		case 5:
-			expirationTime += 60 * 60 * 24 * 7
+			expirationTime = now + 60*60*24*7
 		case 6:
-			expirationTime += 60 * 60 * 24 * 30
-		default:
-			expirationTime = 0
+			expirationTime = now + 60*60*24*30
+		}
+		// 兼容老/异构客户端：未传 key 时，支持直接传禁言时长或到期时间。
+		if expirationTime == 0 {
+			expireVal := req.ForbiddenExpirTime
+			if expireVal == 0 {
+				expireVal = req.ForbiddenExpireTime
+			}
+			if expireVal == 0 {
+				expireVal = req.ForbiddenExpireAt
+			}
+			if expireVal == 0 {
+				expireVal = req.ForbiddenExpireStamp
+			}
+			if expireVal > 0 {
+				// 大于当前时间按“绝对过期时间”处理，否则按“持续秒数”处理。
+				if expireVal > now {
+					expirationTime = expireVal
+				} else {
+					expirationTime = now + expireVal
+				}
+			}
 		}
 		if expirationTime == 0 {
 			c.ResponseError(errors.New("禁言成员时长参数错误"))
