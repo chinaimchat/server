@@ -588,6 +588,15 @@ func (u *User) UserAvatar(c *wkhttp.Context) {
 // uploadAvatar 上传用户头像
 func (u *User) uploadAvatar(c *wkhttp.Context) {
 	loginUID := c.GetLoginUID()
+	pathUID := strings.TrimSpace(c.Param("uid"))
+	if pathUID == "" || pathUID != loginUID {
+		u.Warn("上传头像路径 UID 与登录用户不一致", zap.String("path_uid", pathUID), zap.String("login_uid", loginUID))
+		c.JSON(http.StatusForbidden, gin.H{
+			"msg":    "无权修改该用户头像",
+			"status": http.StatusForbidden,
+		})
+		return
+	}
 	if c.Request.MultipartForm == nil {
 		err := c.Request.ParseMultipartForm(1024 * 1024 * 20) // 20M
 		if err != nil {
